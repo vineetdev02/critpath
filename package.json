@@ -1,6 +1,6 @@
 {
   "name": "critpath",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Find out why your CI is slow. Waterfall, critical path and queue analysis for GitHub Actions — in your terminal, no signup.",
   "type": "module",
   "bin": {
@@ -8,6 +8,7 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.map",
     "README.md",
     "LICENSE"
   ],
@@ -23,11 +24,18 @@
   },
   "keywords": [
     "ci",
+    "cd",
+    "ci-cd",
     "github-actions",
+    "actions",
+    "workflow",
+    "pipeline",
     "profiler",
     "performance",
     "critical-path",
     "waterfall",
+    "bottleneck",
+    "build-time",
     "devops",
     "cli"
   ],

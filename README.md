@@ -1,5 +1,10 @@
 # critpath
 
+[![npm version](https://img.shields.io/npm/v/critpath?color=cb3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/critpath)
+[![CI](https://github.com/vineetdev02/critpath/actions/workflows/ci.yml/badge.svg)](https://github.com/vineetdev02/critpath/actions/workflows/ci.yml)
+[![node](https://img.shields.io/node/v/critpath?color=5fa04e&logo=node.js&logoColor=white)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/critpath?color=blue)](./LICENSE)
+
 **Find out why your CI is slow.** Waterfall, critical path, queue time and cost for GitHub Actions — in your terminal, in about five seconds, with no signup and no server.
 
 Everyone knows CI takes 22 minutes. Almost nobody knows *which* 22 minutes. The Actions tab shows you a list of jobs and their durations, which is the one view that cannot answer the question — because a job that takes 6 minutes in parallel with an 8-minute job costs you nothing.
