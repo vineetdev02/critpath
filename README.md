@@ -1,19 +1,19 @@
-# whyslow
+# whyci
 
 **Find out why your CI is slow.** Waterfall, critical path, queue time and cost for GitHub Actions — in your terminal, in about five seconds, with no signup and no server.
 
 Everyone knows CI takes 22 minutes. Almost nobody knows *which* 22 minutes. The Actions tab shows you a list of jobs and their durations, which is the one view that cannot answer the question — because a job that takes 6 minutes in parallel with an 8-minute job costs you nothing.
 
-`whyslow` answers it directly: here is the chain of jobs that decided your wall time, here is how much of it was spent waiting rather than running, and here is the work you are paying for twenty times over.
+`whyci` answers it directly: here is the chain of jobs that decided your wall time, here is how much of it was spent waiting rather than running, and here is the work you are paying for twenty times over.
 
 ```
-npx whyslow
+npx whyci
 ```
 
 ## What you get
 
 ```
-whyslow  vitest-dev/vitest   CI  ·  main  ·  last 2 runs
+whyci  vitest-dev/vitest   CI  ·  main  ·  last 2 runs
   also in this repo: Lock Closed Issues, CR, Knip — use --workflow to switch
 
   Wall time       p50 7m 32s     p90 8m 13s
@@ -80,21 +80,21 @@ What to fix
 Nothing to install:
 
 ```bash
-npx whyslow                       # this repo, from its git remote
-npx whyslow vitest-dev/vitest     # any public repo
+npx whyci                       # this repo, from its git remote
+npx whyci vitest-dev/vitest     # any public repo
 ```
 
 Or keep it around:
 
 ```bash
-npm install -g whyslow
+npm install -g whyci
 ```
 
 Requires Node 20+.
 
 ### Token
 
-Public repos work with no token at all (GitHub allows 60 requests/hour). For private repos, or to get the full 5000 requests/hour, `whyslow` picks up a token from — in order — `--token`, `$GITHUB_TOKEN`, `$GH_TOKEN`, or the `gh` CLI if you are already logged in. Nothing is stored, and no data leaves your machine: `whyslow` talks to `api.github.com` and nothing else.
+Public repos work with no token at all (GitHub allows 60 requests/hour). For private repos, or to get the full 5000 requests/hour, `whyci` picks up a token from — in order — `--token`, `$GITHUB_TOKEN`, `$GH_TOKEN`, or the `gh` CLI if you are already logged in. Nothing is stored, and no data leaves your machine: `whyci` talks to `api.github.com` and nothing else.
 
 ## The four numbers that matter
 
@@ -110,7 +110,7 @@ The gap between *compute* and *critical path* is the useful one. In the run abov
 ## Options
 
 ```
-whyslow [owner/repo] [options]
+whyci [owner/repo] [options]
 
   --branch <name>     Branch to analyze            (default: repo default branch)
   --all-branches      Analyze runs from every branch
@@ -125,17 +125,17 @@ whyslow [owner/repo] [options]
   --help, --version
 ```
 
-Repos usually have several workflows, so `whyslow` picks the one consuming the most time and names the rest. Percentiles come from the sampled runs; the waterfall and the fix list come from the most recent one.
+Repos usually have several workflows, so `whyci` picks the one consuming the most time and names the rest. Percentiles come from the sampled runs; the waterfall and the fix list come from the most recent one.
 
 ```bash
-whyslow my-org/api --branch develop --runs 50
-whyslow my-org/api --workflow ci.yml --event pull_request
-whyslow my-org/api --json | jq '.stats.wallP50'
+whyci my-org/api --branch develop --runs 50
+whyci my-org/api --workflow ci.yml --event pull_request
+whyci my-org/api --json | jq '.stats.wallP50'
 ```
 
 ## How the critical path is found
 
-The GitHub API gives you jobs and timings but never the dependency graph, so `whyslow` reads the workflow file at the commit each run was built from and parses its `needs:` declarations. Matching API job names back to workflow jobs is the fiddly part — a matrix job arrives as `Test (20, ubuntu-latest)` and a reusable-workflow job as `Release / build` — so matching narrows from exact, to de-decorated, to longest literal prefix, which keeps `Test: vite@7, …` from being confused with `Test: …`.
+The GitHub API gives you jobs and timings but never the dependency graph, so `whyci` reads the workflow file at the commit each run was built from and parses its `needs:` declarations. Matching API job names back to workflow jobs is the fiddly part — a matrix job arrives as `Test (20, ubuntu-latest)` and a reusable-workflow job as `Release / build` — so matching narrows from exact, to de-decorated, to longest literal prefix, which keeps `Test: vite@7, …` from being confused with `Test: …`.
 
 From there it walks back from the last job to finish, always taking the upstream job that finished latest, and splits each hop into *running* and *waiting*.
 
@@ -147,9 +147,9 @@ Private repos get a dollar figure using GitHub's published standard-runner rates
 
 ## Why not just read the Actions tab
 
-The Actions tab is a list. Lists are the wrong shape for a parallel graph: they invite you to optimise the slowest job, which is usually not the blocking one, and they hide queue time entirely. `whyslow` is the same data arranged so the answer is visible.
+The Actions tab is a list. Lists are the wrong shape for a parallel graph: they invite you to optimise the slowest job, which is usually not the blocking one, and they hide queue time entirely. `whyci` is the same data arranged so the answer is visible.
 
-Hosted products (Depot, Trunk, BuildPulse) do this and much more, behind a signup and a bill. `whyslow` does the one thing, locally, free, and prints it.
+Hosted products (Depot, Trunk, BuildPulse) do this and much more, behind a signup and a bill. `whyci` does the one thing, locally, free, and prints it.
 
 ## Roadmap
 

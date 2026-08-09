@@ -34,7 +34,7 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
   const slug = args.positionals[0] ?? detectRepoFromGit();
   if (!slug) {
     throw new UsageError(
-      "No repository given, and this directory has no GitHub remote.\n\n  whyslow owner/repo",
+      "No repository given, and this directory has no GitHub remote.\n\n  whyci owner/repo",
     );
   }
   const { owner, repo } = parseRepoSlug(slug);

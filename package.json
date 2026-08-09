@@ -1,10 +1,10 @@
 {
-  "name": "whyslow",
+  "name": "whyci",
   "version": "0.1.0",
   "description": "Find out why your CI is slow. Waterfall, critical path and queue analysis for GitHub Actions — in your terminal, no signup.",
   "type": "module",
   "bin": {
-    "whyslow": "./dist/cli.js"
+    "whyci": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -34,12 +34,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vineetdev02/whyslow.git"
+    "url": "git+https://github.com/vineetdev02/whyci.git"
   },
   "bugs": {
-    "url": "https://github.com/vineetdev02/whyslow/issues"
+    "url": "https://github.com/vineetdev02/whyci/issues"
   },
-  "homepage": "https://github.com/vineetdev02/whyslow#readme",
+  "homepage": "https://github.com/vineetdev02/whyci#readme",
   "dependencies": {
     "yaml": "^2.9.0"
   },

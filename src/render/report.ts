@@ -49,7 +49,7 @@ export function renderReport(report: Report): string {
 }
 
 function header(report: Report): string {
-  const title = c.bold(`whyslow  ${report.owner}/${report.repo}`);
+  const title = c.bold(`whyci  ${report.owner}/${report.repo}`);
   const context = c.dim(
     `${report.workflowName}  ·  ${report.branch}  ·  last ${report.stats.count} run${report.stats.count === 1 ? "" : "s"}`,
   );
