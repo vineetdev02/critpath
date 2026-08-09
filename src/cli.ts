@@ -11,12 +11,12 @@ const { version } = require("../package.json") as { version: string };
 
 const GLOBAL_FLAGS = { help: "boolean", version: "boolean" } as const;
 
-const HELP = `${c.bold("whyci")} — find out why your CI is slow
+const HELP = `${c.bold("critpath")} — find out why your CI is slow
 
 ${c.bold("Usage")}
-  whyci [owner/repo] [options]
+  critpath [owner/repo] [options]
 
-  With no repository, whyci reads the GitHub remote of the current directory.
+  With no repository, critpath reads the GitHub remote of the current directory.
 
 ${c.bold("Options")}
   --branch <name>     Branch to analyze            (default: repo default branch)
@@ -32,10 +32,10 @@ ${c.bold("Options")}
   --help, --version
 
 ${c.bold("Examples")}
-  whyci                                  ${c.dim("# this repo, default branch")}
-  whyci vercel/next.js --runs 50
-  whyci my-org/api --branch develop --workflow ci.yml
-  whyci my-org/api --json > ci.json
+  critpath                                  ${c.dim("# this repo, default branch")}
+  critpath vercel/next.js --runs 50
+  critpath my-org/api --branch develop --workflow ci.yml
+  critpath my-org/api --json > ci.json
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -71,7 +71,7 @@ main(process.argv.slice(2))
 
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${c.red("Error:")} ${message}\n`);
-    if (process.env.WHYCI_DEBUG && error instanceof Error && error.stack) {
+    if (process.env.CRITPATH_DEBUG && error instanceof Error && error.stack) {
       process.stderr.write(`${error.stack}\n`);
     }
     process.exitCode = 1;

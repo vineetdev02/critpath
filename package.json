@@ -1,10 +1,10 @@
 {
-  "name": "@vindev02/whyci",
+  "name": "critpath",
   "version": "0.1.0",
   "description": "Find out why your CI is slow. Waterfall, critical path and queue analysis for GitHub Actions — in your terminal, no signup.",
   "type": "module",
   "bin": {
-    "whyci": "dist/cli.js"
+    "critpath": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -34,12 +34,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vineetdev02/whyci.git"
+    "url": "git+https://github.com/vineetdev02/critpath.git"
   },
   "bugs": {
-    "url": "https://github.com/vineetdev02/whyci/issues"
+    "url": "https://github.com/vineetdev02/critpath/issues"
   },
-  "homepage": "https://github.com/vineetdev02/whyci#readme",
+  "homepage": "https://github.com/vineetdev02/critpath#readme",
   "dependencies": {
     "yaml": "^2.9.0"
   },
