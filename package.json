@@ -1,5 +1,5 @@
 {
-  "name": "whyci",
+  "name": "@vindev02/whyci",
   "version": "0.1.0",
   "description": "Find out why your CI is slow. Waterfall, critical path and queue analysis for GitHub Actions — in your terminal, no signup.",
   "type": "module",

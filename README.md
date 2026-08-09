@@ -7,7 +7,7 @@ Everyone knows CI takes 22 minutes. Almost nobody knows *which* 22 minutes. The 
 `whyci` answers it directly: here is the chain of jobs that decided your wall time, here is how much of it was spent waiting rather than running, and here is the work you are paying for twenty times over.
 
 ```
-npx whyci
+npm install -g @vindev02/whyci && whyci
 ```
 
 ## What you get
@@ -77,17 +77,19 @@ What to fix
 
 ## Install
 
-Nothing to install:
+Install once, then the command is just `whyci`:
 
 ```bash
-npx whyci                       # this repo, from its git remote
-npx whyci vitest-dev/vitest     # any public repo
+npm install -g @vindev02/whyci
+
+whyci                       # this repo, from its git remote
+whyci vitest-dev/vitest     # any public repo
 ```
 
-Or keep it around:
+Or run it without installing:
 
 ```bash
-npm install -g whyci
+npx @vindev02/whyci vitest-dev/vitest
 ```
 
 Requires Node 20+.
