@@ -1,0 +1,52 @@
+{
+  "name": "whyslow",
+  "version": "0.1.0",
+  "description": "Find out why your CI is slow. Waterfall, critical path and queue analysis for GitHub Actions — in your terminal, no signup.",
+  "type": "module",
+  "bin": {
+    "whyslow": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x dist/cli.js",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ci",
+    "github-actions",
+    "profiler",
+    "performance",
+    "critical-path",
+    "waterfall",
+    "devops",
+    "cli"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vineetdev02/whyslow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vineetdev02/whyslow/issues"
+  },
+  "homepage": "https://github.com/vineetdev02/whyslow#readme",
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.11",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
