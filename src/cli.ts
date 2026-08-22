@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 
 import { parseArgs, UsageError } from "./args.js";
-import { ANALYZE_FLAGS, analyzeCommand } from "./commands/analyze.js";
+import { ANALYZE_FLAGS, analyzeCommand, EXIT } from "./commands/analyze.js";
 import { GitHubError } from "./github/client.js";
 import { c } from "./render/ansi.js";
 
@@ -26,6 +26,8 @@ ${c.bold("Options")}
   --run <id>          Analyze one specific run id
   --event <name>      Filter by trigger, e.g. push, pull_request
   --all               Show every job in the waterfall, not just the slowest
+  --budget <time>     Wall-time budget, e.g. 10m, 90s, 1h30m (bare number = minutes)
+  --check             Exit 1 when p50 wall time is over --budget
   --json              Machine-readable output
   --no-color          Disable colour
   --token <token>     GitHub token (default: $GITHUB_TOKEN, $GH_TOKEN, or gh CLI)
@@ -36,6 +38,10 @@ ${c.bold("Examples")}
   critpath vercel/next.js --runs 50
   critpath my-org/api --branch develop --workflow ci.yml
   critpath my-org/api --json > ci.json
+  critpath --check --budget 10m             ${c.dim("# gate a pull request")}
+
+${c.bold("Exit codes")}
+  0 clean   1 over budget (--check)   2 bad usage   3 could not run
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -43,11 +49,11 @@ async function main(argv: string[]): Promise<number> {
 
   if (args.flags.get("version") === true) {
     process.stdout.write(`${version}\n`);
-    return 0;
+    return EXIT.ok;
   }
   if (args.flags.get("help") === true) {
     process.stdout.write(HELP);
-    return 0;
+    return EXIT.ok;
   }
 
   return analyzeCommand(args);
@@ -60,12 +66,12 @@ main(process.argv.slice(2))
   .catch((error: unknown) => {
     if (error instanceof UsageError) {
       process.stderr.write(`${error.message}\n`);
-      process.exitCode = 2;
+      process.exitCode = EXIT.usage;
       return;
     }
     if (error instanceof GitHubError) {
       process.stderr.write(`${c.red("GitHub:")} ${error.message}\n`);
-      process.exitCode = 1;
+      process.exitCode = EXIT.failed;
       return;
     }
 
@@ -74,5 +80,5 @@ main(process.argv.slice(2))
     if (process.env.CRITPATH_DEBUG && error instanceof Error && error.stack) {
       process.stderr.write(`${error.stack}\n`);
     }
-    process.exitCode = 1;
+    process.exitCode = EXIT.failed;
   });

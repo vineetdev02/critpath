@@ -124,6 +124,8 @@ critpath [owner/repo] [options]
   --run <id>          Analyze one specific run id
   --event <name>      Filter by trigger, e.g. push, pull_request
   --all               Show every job in the waterfall, not just the slowest
+  --budget <time>     Wall-time budget, e.g. 10m, 90s, 1h30m
+  --check             Exit 1 when p50 wall time is over --budget
   --json              Machine-readable output
   --no-color          Disable colour
   --token <token>     GitHub token
@@ -137,6 +139,29 @@ critpath my-org/api --branch develop --runs 50
 critpath my-org/api --workflow ci.yml --event pull_request
 critpath my-org/api --json | jq '.stats.wallP50'
 ```
+
+## Budgets
+
+Reading a waterfall is a thing you do once. A budget is a thing that runs forever:
+
+```yaml
+- run: npx critpath --check --budget 10m
+```
+
+`--budget` accepts `10m`, `90s`, `1h30m`, `250ms`, or a bare number, which reads as minutes. It is checked against **p50 wall time across the sampled runs**, not the newest run — one unlucky build should not turn a pipeline red, and "CI takes 22 minutes" was always a claim about the middle of the distribution.
+
+`--budget` on its own prints the verdict and exits 0. `--check` is what makes it a gate.
+
+```
+  OVER BUDGET  p50 wall time 12m 14s is 2m 14s over 10m 00s
+```
+
+| code | meaning |
+| --- | --- |
+| `0` | clean |
+| `1` | over budget, with `--check` |
+| `2` | bad usage |
+| `3` | could not run — no repo, no runs, API error |
 
 ## How the critical path is found
 
@@ -159,6 +184,7 @@ Hosted products (Depot, Trunk, BuildPulse) do this and much more, behind a signu
 ## Roadmap
 
 - PR comment bot, as a GitHub Action, so regressions show up in review ("this PR added 3m to CI")
+- Per-job budgets, not just a whole-pipeline one
 - Cache hit-rate analysis from run logs
 - Trend history across weeks, not just the sampled window
 - Suggested `needs:` graph rewrites with predicted wall-time savings

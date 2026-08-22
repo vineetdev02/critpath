@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 
 import { getBool, getNumber, getString, UsageError, type ParsedArgs } from "../args.js";
 import { analyzeRun } from "../analyze/build.js";
+import { type BudgetVerdict, evaluateBudget, parseDuration } from "../analyze/budget.js";
 import { estimateCost, projectMonthly } from "../analyze/cost.js";
 import { buildInsights } from "../analyze/insights.js";
 import type { RunAnalysis } from "../analyze/model.js";
@@ -13,6 +14,9 @@ import type { WorkflowRun } from "../github/types.js";
 import { c, setColorEnabled } from "../render/ansi.js";
 import { renderReport, type Report } from "../render/report.js";
 
+/** Exit codes, documented in --help so CI can branch on them. */
+export const EXIT = { ok: 0, overBudget: 1, usage: 2, failed: 3 } as const;
+
 export const ANALYZE_FLAGS = {
   branch: "string",
   "all-branches": "boolean",
@@ -22,6 +26,8 @@ export const ANALYZE_FLAGS = {
   event: "string",
   json: "boolean",
   all: "boolean",
+  check: "boolean",
+  budget: "string",
   color: "boolean",
   token: "string",
 } as const;
@@ -30,6 +36,9 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
   if (args.flags.has("color")) setColorEnabled(getBool(args, "color"));
   const asJson = getBool(args, "json");
   if (asJson) setColorEnabled(false);
+
+  // Parsed before the first request: a mistyped budget should cost nothing.
+  const budgetMs = resolveBudget(args);
 
   const slug = args.positionals[0] ?? detectRepoFromGit();
   if (!slug) {
@@ -58,7 +67,7 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
   if (candidates.length === 0) {
     clearProgress();
     process.stderr.write(noRunsMessage(owner, repo, branch, getString(args, "workflow")));
-    return 1;
+    return EXIT.failed;
   }
 
   const analyses = await analyzeFirstUsableGroup(client, owner, repo, candidates);
@@ -66,12 +75,13 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
 
   if (analyses.length === 0) {
     process.stderr.write("Found runs, but none had completed jobs with usable timings.\n");
-    return 1;
+    return EXIT.failed;
   }
 
   const focus = analyses[0] as RunAnalysis;
   const stats = summarizeRuns(analyses);
   const cost = estimateCost(analyses);
+  const budget = budgetMs === null ? null : evaluateBudget(budgetMs, stats.wallP50);
 
   const report: Report = {
     owner,
@@ -90,15 +100,35 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
       .filter((run): run is WorkflowRun => run !== undefined && run.path !== focus.run.path)
       .map((run) => run.name ?? run.path.replace(/^\.github\/workflows\//, "")),
     showAllJobs: getBool(args, "all"),
+    budget,
   };
 
   if (asJson) {
     process.stdout.write(`${JSON.stringify(toJson(report, analyses), null, 2)}\n`);
-    return 0;
+    return exitCodeFor(args, budget);
   }
 
   process.stdout.write(renderReport(report));
-  return 0;
+  return exitCodeFor(args, budget);
+}
+
+/**
+ * `--budget` alone reports the verdict; `--check` is what turns it into a gate,
+ * matching lockreview, where `--check` opts in and the threshold flag tunes it.
+ */
+function resolveBudget(args: ParsedArgs): number | null {
+  const raw = getString(args, "budget");
+  if (raw === undefined) {
+    if (getBool(args, "check")) {
+      throw new UsageError("--check needs a budget to check against. Try --check --budget 10m.");
+    }
+    return null;
+  }
+  return parseDuration(raw);
+}
+
+function exitCodeFor(args: ParsedArgs, budget: BudgetVerdict | null): number {
+  return getBool(args, "check") && budget?.over ? EXIT.overBudget : EXIT.ok;
 }
 
 /**
@@ -213,6 +243,7 @@ function monthlyProjection(analyses: RunAnalysis[], cost: ReturnType<typeof esti
 function toJson(report: Report, analyses: RunAnalysis[]) {
   return {
     repo: `${report.owner}/${report.repo}`,
+    budget: report.budget,
     workflow: report.workflowName,
     branch: report.branch,
     runsAnalyzed: analyses.length,

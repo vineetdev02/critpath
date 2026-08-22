@@ -1,3 +1,4 @@
+import type { BudgetVerdict } from "../analyze/budget.js";
 import type { CostEstimate } from "../analyze/cost.js";
 import type { Insight } from "../analyze/insights.js";
 import type { RunAnalysis, StepAnalysis } from "../analyze/model.js";
@@ -23,6 +24,8 @@ export interface Report {
   /** Other workflows in this repo, so the reader knows what was left out. */
   otherWorkflows: string[];
   showAllJobs: boolean;
+  /** Set only when --budget was given; null leaves the report unchanged. */
+  budget: BudgetVerdict | null;
 }
 
 export function renderReport(report: Report): string {
@@ -39,6 +42,7 @@ export function renderReport(report: Report): string {
   }
   out.push("");
   out.push(...summary(report), "");
+  if (report.budget) out.push(budgetVerdict(report.budget), "");
   out.push(...criticalPath(report.focus), "");
   out.push(...waterfall(report, width), "");
   out.push(...slowestSteps(report.focus), "");
@@ -105,6 +109,20 @@ function summary(report: Report): string[] {
     ([label, value, note]) =>
       `  ${padEnd(c.dim(label), labelWidth)}   ${padEnd(c.bold(value), valueWidth)}   ${c.dim(note)}`,
   );
+}
+
+/**
+ * The gate result, on its own line rather than folded into the summary rows —
+ * it is the one thing a CI reader scrolls up to find.
+ */
+function budgetVerdict(verdict: BudgetVerdict): string {
+  const { actualMs, budgetMs } = verdict;
+  if (verdict.over) {
+    const label = c.red(c.bold("OVER BUDGET"));
+    return `  ${label}  p50 wall time ${duration(actualMs)} is ${duration(actualMs - budgetMs)} over ${duration(budgetMs)}`;
+  }
+  const label = c.green(c.bold("within budget"));
+  return `  ${label}  p50 wall time ${duration(actualMs)}, ${duration(budgetMs - actualMs)} to spare`;
 }
 
 function trendSuffix(stats: RunStats): string {
