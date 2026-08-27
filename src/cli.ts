@@ -28,6 +28,7 @@ ${c.bold("Options")}
   --all               Show every job in the waterfall, not just the slowest
   --budget <time>     Wall-time budget, e.g. 10m, 90s, 1h30m (bare number = minutes)
   --check             Exit 1 when p50 wall time is over --budget
+  --markdown          GitHub-flavoured markdown, for a pull request comment
   --json              Machine-readable output
   --no-color          Disable colour
   --token <token>     GitHub token (default: $GITHUB_TOKEN, $GH_TOKEN, or gh CLI)
@@ -38,6 +39,7 @@ ${c.bold("Examples")}
   critpath vercel/next.js --runs 50
   critpath my-org/api --branch develop --workflow ci.yml
   critpath my-org/api --json > ci.json
+  critpath --markdown >> "$GITHUB_STEP_SUMMARY"
   critpath --check --budget 10m             ${c.dim("# gate a pull request")}
 
 ${c.bold("Exit codes")}

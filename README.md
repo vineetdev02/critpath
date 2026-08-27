@@ -126,6 +126,7 @@ critpath [owner/repo] [options]
   --all               Show every job in the waterfall, not just the slowest
   --budget <time>     Wall-time budget, e.g. 10m, 90s, 1h30m
   --check             Exit 1 when p50 wall time is over --budget
+  --markdown          GitHub-flavoured markdown, for a pull request comment
   --json              Machine-readable output
   --no-color          Disable colour
   --token <token>     GitHub token
@@ -138,6 +139,7 @@ Repos usually have several workflows, so `critpath` picks the one consuming the 
 critpath my-org/api --branch develop --runs 50
 critpath my-org/api --workflow ci.yml --event pull_request
 critpath my-org/api --json | jq '.stats.wallP50'
+critpath my-org/api --markdown >> "$GITHUB_STEP_SUMMARY"
 ```
 
 ## Budgets
@@ -163,6 +165,45 @@ Reading a waterfall is a thing you do once. A budget is a thing that runs foreve
 | `2` | bad usage |
 | `3` | could not run — no repo, no runs, API error |
 
+## In CI
+
+`--check --budget` decides whether the build goes red. `--markdown` is what makes the number
+visible to whoever has to fix it — the critical path, the slowest steps and the fix list, as a
+pull request comment that updates itself instead of stacking up:
+
+```yaml
+name: critpath
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Monday morning, on the week's runs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read # critpath reads the runs and jobs of this repo
+  pull-requests: write
+
+jobs:
+  critpath:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx critpath ${{ github.repository }} --markdown > critpath.md
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: cat critpath.md >> "$GITHUB_STEP_SUMMARY"
+```
+
+The markdown carries a `<!-- critpath -->` marker, so `gh pr comment --edit-last` finds the
+previous comment and replaces it rather than posting a new one on every push.
+
+`--markdown` leaves out the waterfall on purpose: it is an ANSI bar chart that needs a known
+terminal width, and a table of the jobs that actually decided wall time says the same thing in
+a comment without pretending to be a picture.
+
 ## How the critical path is found
 
 The GitHub API gives you jobs and timings but never the dependency graph, so `critpath` reads the workflow file at the commit each run was built from and parses its `needs:` declarations. Matching API job names back to workflow jobs is the fiddly part — a matrix job arrives as `Test (20, ubuntu-latest)` and a reusable-workflow job as `Release / build` — so matching narrows from exact, to de-decorated, to longest literal prefix, which keeps `Test: vite@7, …` from being confused with `Test: …`.
@@ -183,7 +224,8 @@ Hosted products (Depot, Trunk, BuildPulse) do this and much more, behind a signu
 
 ## Roadmap
 
-- PR comment bot, as a GitHub Action, so regressions show up in review ("this PR added 3m to CI")
+- A packaged GitHub Action, so the workflow above is one line instead of ten
+- Comparing a pull request against its base branch ("this PR added 3m to CI")
 - Per-job budgets, not just a whole-pipeline one
 - Cache hit-rate analysis from run logs
 - Trend history across weeks, not just the sampled window

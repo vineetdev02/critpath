@@ -12,6 +12,7 @@ import { GitHubClient } from "../github/client.js";
 import { resolveToken, TOKEN_HINT } from "../github/token.js";
 import type { WorkflowRun } from "../github/types.js";
 import { c, setColorEnabled } from "../render/ansi.js";
+import { renderMarkdown } from "../render/markdown.js";
 import { renderReport, type Report } from "../render/report.js";
 
 /** Exit codes, documented in --help so CI can branch on them. */
@@ -25,6 +26,7 @@ export const ANALYZE_FLAGS = {
   run: "string",
   event: "string",
   json: "boolean",
+  markdown: "boolean",
   all: "boolean",
   check: "boolean",
   budget: "string",
@@ -35,7 +37,10 @@ export const ANALYZE_FLAGS = {
 export async function analyzeCommand(args: ParsedArgs): Promise<number> {
   if (args.flags.has("color")) setColorEnabled(getBool(args, "color"));
   const asJson = getBool(args, "json");
-  if (asJson) setColorEnabled(false);
+  const asMarkdown = !asJson && getBool(args, "markdown");
+  // Neither machine format carries escape codes, and a --no-color check would
+  // still leave them on when stdout happens to be a terminal.
+  if (asJson || asMarkdown) setColorEnabled(false);
 
   // Parsed before the first request: a mistyped budget should cost nothing.
   const budgetMs = resolveBudget(args);
@@ -51,7 +56,7 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
   // Public repos work unauthenticated at 60 requests/hour, which is enough for
   // one look. Warn rather than block — the API error will say more if we hit it.
   const token = resolveToken(getString(args, "token"));
-  if (!token && !asJson) process.stderr.write(`${c.dim(TOKEN_HINT)}\n`);
+  if (!token && !asJson && !asMarkdown) process.stderr.write(`${c.dim(TOKEN_HINT)}\n`);
 
   const client = new GitHubClient({ token });
   const limit = clampRunCount(getNumber(args, "runs") ?? 20);
@@ -105,6 +110,10 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
 
   if (asJson) {
     process.stdout.write(`${JSON.stringify(toJson(report, analyses), null, 2)}\n`);
+    return exitCodeFor(args, budget);
+  }
+  if (asMarkdown) {
+    process.stdout.write(renderMarkdown(report));
     return exitCodeFor(args, budget);
   }
 
