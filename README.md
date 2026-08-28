@@ -167,9 +167,7 @@ Reading a waterfall is a thing you do once. A budget is a thing that runs foreve
 
 ## In CI
 
-`--check --budget` decides whether the build goes red. `--markdown` is what makes the number
-visible to whoever has to fix it — the critical path, the slowest steps and the fix list, as a
-pull request comment that updates itself instead of stacking up:
+There is a packaged action, so the workflow is one step:
 
 ```yaml
 name: critpath
@@ -182,23 +180,56 @@ on:
 permissions:
   contents: read
   actions: read # critpath reads the runs and jobs of this repo
-  pull-requests: write
+  pull-requests: write # only needed for the comment
 
 jobs:
   critpath:
     runs-on: ubuntu-latest
     steps:
+      - uses: vineetdev02/critpath@v0.1.4
+        with:
+          budget: 10m
+```
+
+That samples the busiest workflow on the default branch, writes the report to the job summary,
+posts it on the pull request when there is one, and fails the job if p50 wall time is over the
+budget.
+
+| input | default | |
+| --- | --- | --- |
+| `repository` | this repo | Repository to analyze, as `owner/repo` |
+| `branch` | default branch | Branch to sample |
+| `all-branches` | `false` | Sample every branch instead of one |
+| `workflow` | the busiest | Workflow file or name |
+| `runs` | `20` | How many runs to sample, max 100 |
+| `event` | — | Only runs from this trigger, e.g. `pull_request` |
+| `budget` | — | Wall-time budget, e.g. `10m` |
+| `check` | `true` | Fail the job when p50 is over the budget |
+| `comment` | `true` | Post the report on the pull request |
+| `summary` | `true` | Append the report to the job summary |
+| `args` | — | Extra flags, passed through verbatim |
+| `token` | `github.token` | Token used to read the runs and to comment |
+
+Outputs are `report` (path to the markdown), `over-budget` and `exit-code`. The budget is
+evaluated whenever one is set, so `over-budget` is answered even with `check: false` — the input
+only decides whether the verdict turns the job red, and it turns it red *after* the comment is
+posted, because a red job with no explanation is what gets muted.
+
+The comment updates itself. `critpath`'s markdown carries a `<!-- critpath -->` marker, and the
+action edits the comment carrying it rather than posting a new one on every push.
+
+Without the action it is `npx`, the same as anywhere else:
+
+```yaml
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npx critpath ${{ github.repository }} --markdown > critpath.md
+      - run: npx critpath ${{ github.repository }} --check --budget 10m --markdown > critpath.md
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - run: cat critpath.md >> "$GITHUB_STEP_SUMMARY"
+        if: always()
 ```
-
-The markdown carries a `<!-- critpath -->` marker, so `gh pr comment --edit-last` finds the
-previous comment and replaces it rather than posting a new one on every push.
 
 `--markdown` leaves out the waterfall on purpose: it is an ANSI bar chart that needs a known
 terminal width, and a table of the jobs that actually decided wall time says the same thing in
@@ -224,7 +255,6 @@ Hosted products (Depot, Trunk, BuildPulse) do this and much more, behind a signu
 
 ## Roadmap
 
-- A packaged GitHub Action, so the workflow above is one line instead of ten
 - Comparing a pull request against its base branch ("this PR added 3m to CI")
 - Per-job budgets, not just a whole-pipeline one
 - Cache hit-rate analysis from run logs
@@ -237,7 +267,7 @@ Issues and PRs welcome — especially real workflows where the critical path com
 
 ```bash
 npm install
-npm test          # 32 tests, no network
+npm test          # 50 tests, no network
 npm run build
 node dist/cli.js owner/repo
 ```

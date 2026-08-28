@@ -1,0 +1,182 @@
+name: critpath
+description: Find out why CI is slow — critical path, queue time and a wall-time budget gate for GitHub Actions.
+author: vineetdev02
+
+branding:
+  icon: activity
+  color: purple
+
+inputs:
+  repository:
+    description: Repository to analyze, as owner/repo.
+    required: false
+    default: ${{ github.repository }}
+  branch:
+    description: Branch to analyze. Defaults to the repository's default branch.
+    required: false
+    default: ""
+  all-branches:
+    description: Analyze runs from every branch instead of one.
+    required: false
+    default: "false"
+  workflow:
+    description: Workflow file or name. Defaults to the one consuming the most time.
+    required: false
+    default: ""
+  runs:
+    description: How many runs to sample (max 100).
+    required: false
+    default: ""
+  event:
+    description: Only sample runs from this trigger, e.g. push or pull_request.
+    required: false
+    default: ""
+  budget:
+    description: Wall-time budget, e.g. 10m, 90s, 1h30m. A bare number reads as minutes.
+    required: false
+    default: ""
+  check:
+    description: Fail the job when p50 wall time is over the budget. No effect without a budget.
+    required: false
+    default: "true"
+  comment:
+    description: Post the report on the pull request, updating the previous comment. Needs pull-requests:write.
+    required: false
+    default: "true"
+  summary:
+    description: Append the report to the job summary.
+    required: false
+    default: "true"
+  args:
+    description: Extra flags passed to critpath verbatim.
+    required: false
+    default: ""
+  token:
+    description: Token used to read the runs and to comment.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  report:
+    description: Path to the markdown report this run wrote.
+    value: ${{ steps.critpath.outputs.report }}
+  over-budget:
+    description: '"true" when p50 wall time came out over the budget.'
+    value: ${{ steps.critpath.outputs.over-budget }}
+  exit-code:
+    description: The exit code critpath returned — 0 clean, 1 over budget, 3 could not run.
+    value: ${{ steps.critpath.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    # Inputs arrive as environment variables rather than being interpolated into
+    # the script: a branch or workflow name comes from the pull request, and
+    # `${{ }}` inside a run block would paste it straight into the shell.
+    - id: critpath
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        CRITPATH_REPOSITORY: ${{ inputs.repository }}
+        CRITPATH_BRANCH: ${{ inputs.branch }}
+        CRITPATH_ALL_BRANCHES: ${{ inputs.all-branches }}
+        CRITPATH_WORKFLOW: ${{ inputs.workflow }}
+        CRITPATH_RUNS: ${{ inputs.runs }}
+        CRITPATH_EVENT: ${{ inputs.event }}
+        CRITPATH_BUDGET: ${{ inputs.budget }}
+        CRITPATH_ARGS: ${{ inputs.args }}
+      run: |
+        set -u
+
+        if ! command -v node > /dev/null; then
+          echo "::error::critpath needs Node. Add actions/setup-node@v4 before this step."
+          exit 3
+        fi
+        major="$(node -p 'process.versions.node.split(".")[0]')"
+        if [ "$major" -lt 20 ]; then
+          echo "::error::critpath needs Node 20 or newer; this runner has $(node --version)."
+          exit 3
+        fi
+
+        report="${RUNNER_TEMP:-.}/critpath.md"
+
+        args=()
+        [ -n "$CRITPATH_REPOSITORY" ] && args+=("$CRITPATH_REPOSITORY")
+        [ -n "$CRITPATH_BRANCH" ] && args+=(--branch "$CRITPATH_BRANCH")
+        [ "$CRITPATH_ALL_BRANCHES" = "true" ] && args+=(--all-branches)
+        [ -n "$CRITPATH_WORKFLOW" ] && args+=(--workflow "$CRITPATH_WORKFLOW")
+        [ -n "$CRITPATH_RUNS" ] && args+=(--runs "$CRITPATH_RUNS")
+        [ -n "$CRITPATH_EVENT" ] && args+=(--event "$CRITPATH_EVENT")
+        # --check goes in whenever there is a budget, because the exit code is
+        # the only place the verdict is machine-readable — the `check` input
+        # decides whether that verdict fails the job, further down. Without a
+        # budget --check is a usage error, so it stays out.
+        [ -n "$CRITPATH_BUDGET" ] && args+=(--budget "$CRITPATH_BUDGET" --check)
+        # Word-split on purpose: `args: --all --event push` is a flag list.
+        # shellcheck disable=SC2206
+        [ -n "$CRITPATH_ARGS" ] && args+=($CRITPATH_ARGS)
+
+        # The version comes from the action's own checkout, so `critpath@v0.1.4`
+        # runs 0.1.4 and `@main` runs whatever main declares. A hardcoded pin
+        # here would keep running the previous release after every bump.
+        version="$(node -p "require('$GITHUB_ACTION_PATH/package.json').version")"
+
+        npx --yes "critpath@$version" "${args[@]}" --markdown > "$report"
+        code=$?
+
+        {
+          echo "report=$report"
+          echo "exit-code=$code"
+          echo "over-budget=$([ "$code" -eq 1 ] && echo true || echo false)"
+        } >> "$GITHUB_OUTPUT"
+
+        # 2 is bad usage and 3 is could not run: critpath has already said why
+        # on stderr, and there is no report to publish.
+        if [ "$code" -ge 2 ]; then
+          exit "$code"
+        fi
+
+    - if: ${{ inputs.summary == 'true' }}
+      shell: bash
+      env:
+        CRITPATH_REPORT: ${{ steps.critpath.outputs.report }}
+      run: cat "$CRITPATH_REPORT" >> "$GITHUB_STEP_SUMMARY"
+
+    # One comment per pull request, edited in place. The marker in critpath's
+    # markdown is what finds the previous one, so a rerun replaces its own
+    # comment instead of stacking a new one on every push.
+    - if: ${{ inputs.comment == 'true' && github.event.pull_request.number }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CRITPATH_REPORT: ${{ steps.critpath.outputs.report }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        set -u
+
+        for tool in gh jq; do
+          if ! command -v "$tool" > /dev/null; then
+            echo "::warning::$tool is not installed, so the report was not posted on the pull request."
+            exit 0
+          fi
+        done
+
+        comments="repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments"
+        existing="$(gh api "$comments" --paginate \
+          --jq '.[] | select(.body | contains("<!-- critpath -->")) | .id' | awk 'NR == 1')"
+
+        if [ -n "$existing" ]; then
+          jq -Rs '{ body: . }' < "$CRITPATH_REPORT" \
+            | gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" --input - > /dev/null
+        else
+          jq -Rs '{ body: . }' < "$CRITPATH_REPORT" \
+            | gh api -X POST "$comments" --input - > /dev/null
+        fi
+
+    # Failing last, so the report reaches the pull request even when the budget
+    # blew: a red job with no explanation is what gets muted.
+    - if: ${{ steps.critpath.outputs.over-budget == 'true' && inputs.check == 'true' }}
+      shell: bash
+      run: |
+        echo "::error::critpath: p50 wall time is over the budget."
+        exit 1
