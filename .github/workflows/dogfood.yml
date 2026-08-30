@@ -1,0 +1,44 @@
+name: Dogfood
+
+# critpath, analysing this repository's own CI. Two things at once: a real
+# report on a real pipeline, which is the only kind of demo anybody believes,
+# and a test of the packaged action itself — `uses: ./` runs the action.yml in
+# this checkout, so a change that breaks it goes red here rather than in
+# somebody else's repository after a release.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # CI has to have finished for there to be anything to analyse. On a pull
+  # request this job runs alongside it and reads the runs already on record,
+  # which is exactly how a consumer would use it.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read # reads the run and job timings
+  pull-requests: write # keeps one comment up to date
+
+concurrency:
+  group: dogfood-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  critpath:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Analyse this repository's CI
+        uses: ./
+        with:
+          workflow: ci.yml
+          runs: "30"
+          # Generous on purpose. A budget tight enough to fail on a slow
+          # runner would teach us to ignore this job, and a gate nobody
+          # believes is worse than no gate.
+          budget: 15m
+          check: "true"
