@@ -186,7 +186,7 @@ jobs:
   critpath:
     runs-on: ubuntu-latest
     steps:
-      - uses: vineetdev02/critpath@v0.1.5
+      - uses: vineetdev02/critpath@v0.1.6
         with:
           budget: 10m
 ```
