@@ -32,6 +32,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The push that lands a release carries the version commit and the tag
+      # in one go, so this job and Release start in the same second — and the
+      # action runs `npx critpath@<the version this checkout declares>`, which
+      # at that moment is still uploading. 0.1.5 went red here for exactly
+      # that, two seconds short. Waiting beats skipping the release commit,
+      # because the release is the commit most worth dogfooding. On every
+      # other push the version is already published and this returns at once.
+      - name: Wait for the version this checkout declares
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          for _ in $(seq 1 30); do
+            if npm view "critpath@$version" version > /dev/null 2>&1; then
+              echo "critpath@$version is on the registry"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::critpath@$version never reached the registry, so the release it belongs to must have failed."
+          exit 1
+
       - name: Analyse this repository's CI
         uses: ./
         with:
