@@ -23,6 +23,20 @@ describe("the packaged action", () => {
     expect(scripts).not.toMatch(/critpath@\d/);
   });
 
+  it("installs into a directory of its own, rather than npx-ing itself", () => {
+    // npx resolves a spec against the current project before the registry, so
+    // in this repository — the one dogfooding the action — `npx critpath@…`
+    // decided the checkout already satisfied it, skipped the download, and
+    // exited 127 with `critpath: not found` because nothing had built dist.
+    // Changing directory would also fix it; the directory has to stay, because
+    // critpath reads the git remote of the working directory when none is
+    // given.
+    // A line, not the word: the comment above the fix says "npx" too.
+    expect(scripts).not.toMatch(/^\s*npx\s/m);
+    expect(scripts).toContain("--prefix");
+    expect(scripts).toContain("node_modules/.bin/critpath");
+  });
+
   it("looks for the marker the markdown actually carries", () => {
     // The whole one-comment-per-pull-request behaviour hangs off this string
     // matching; nothing else would fail if it drifted.

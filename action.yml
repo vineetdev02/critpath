@@ -121,6 +121,21 @@ runs:
         # here would keep running the previous release after every bump.
         version="$(node -p "require('$GITHUB_ACTION_PATH/package.json').version")"
 
+        # Installed into a directory of its own, rather than run through
+        # `npx critpath@…`. npx resolves a spec against the *current project*
+        # before the registry, so in a repository that is itself critpath —
+        # this one, dogfooding — it decides the local checkout already
+        # satisfies the spec, never downloads anything, and then finds no
+        # binary to run because nothing built dist: `sh: 1: critpath: not
+        # found`, exit 127. `--package` does not change that; only leaving the
+        # directory does, and the directory has to stay, because critpath
+        # reads the git remote of the working directory when none is given.
+        install="$(mktemp -d)"
+        if ! npm install --no-save --no-audit --no-fund --prefix "$install" "critpath@$version" > /dev/null; then
+          echo "::error::could not install critpath@$version from the registry."
+          exit 3
+        fi
+
         # `shell: bash` in a composite action is `bash --noprofile --norc -eo
         # pipefail`, so a non-zero exit ends the step before the next line
         # runs. `|| code=$?` is what lets the verdict reach the outputs below:
@@ -128,16 +143,13 @@ runs:
         # `over-budget` could never be true, because exit 1 killed the step
         # rather than being read.
         code=0
-        npx --yes "critpath@$version" "${args[@]}" --markdown > "$report" || code=$?
+        "$install/node_modules/.bin/critpath" "${args[@]}" --markdown > "$report" || code=$?
 
-        # Exit 1 means over budget — and it is also what npm returns when it
-        # cannot fetch the package at all. Same number, opposite meaning, and
-        # reporting a budget verdict for a run that never happened is the false
-        # positive this tool exists to avoid. The marker is the tiebreaker:
-        # critpath writes it at the top of every markdown report, so its
-        # absence means nothing ran.
+        # Every markdown report opens with the comment marker, so a report
+        # without one means nothing was written and the verdict below would be
+        # invented — the false positive this tool exists not to produce.
         if [ "$code" -le 1 ] && ! grep -q '<!-- critpath -->' "$report"; then
-          echo "::error::critpath@$version wrote no report — see the log above for why npx could not run it."
+          echo "::error::critpath@$version wrote no report — see the log above."
           exit 3
         fi
 
