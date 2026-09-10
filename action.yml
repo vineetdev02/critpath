@@ -116,13 +116,30 @@ runs:
         # shellcheck disable=SC2206
         [ -n "$CRITPATH_ARGS" ] && args+=($CRITPATH_ARGS)
 
-        # The version comes from the action's own checkout, so `critpath@v0.1.4`
-        # runs 0.1.4 and `@main` runs whatever main declares. A hardcoded pin
+        # The version comes from the action's own checkout, so `critpath@v0.1.5`
+        # runs 0.1.5 and `@main` runs whatever main declares. A hardcoded pin
         # here would keep running the previous release after every bump.
         version="$(node -p "require('$GITHUB_ACTION_PATH/package.json').version")"
 
-        npx --yes "critpath@$version" "${args[@]}" --markdown > "$report"
-        code=$?
+        # `shell: bash` in a composite action is `bash --noprofile --norc -eo
+        # pipefail`, so a non-zero exit ends the step before the next line
+        # runs. `|| code=$?` is what lets the verdict reach the outputs below:
+        # without it `check: false` could never suppress anything and
+        # `over-budget` could never be true, because exit 1 killed the step
+        # rather than being read.
+        code=0
+        npx --yes "critpath@$version" "${args[@]}" --markdown > "$report" || code=$?
+
+        # Exit 1 means over budget — and it is also what npm returns when it
+        # cannot fetch the package at all. Same number, opposite meaning, and
+        # reporting a budget verdict for a run that never happened is the false
+        # positive this tool exists to avoid. The marker is the tiebreaker:
+        # critpath writes it at the top of every markdown report, so its
+        # absence means nothing ran.
+        if [ "$code" -le 1 ] && ! grep -q '<!-- critpath -->' "$report"; then
+          echo "::error::critpath@$version wrote no report — see the log above for why npx could not run it."
+          exit 3
+        fi
 
         {
           echo "report=$report"
