@@ -2,11 +2,20 @@ import { execFileSync } from "node:child_process";
 
 import { getBool, getNumber, getString, UsageError, type ParsedArgs } from "../args.js";
 import { analyzeRun } from "../analyze/build.js";
-import { type BudgetVerdict, evaluateBudget, parseDuration } from "../analyze/budget.js";
+import {
+  anyOverBudget,
+  type BudgetVerdict,
+  evaluateBudget,
+  evaluateJobBudgets,
+  type JobBudget,
+  type JobBudgetVerdict,
+  parseDuration,
+  parseJobBudgets,
+} from "../analyze/budget.js";
 import { estimateCost, projectMonthly } from "../analyze/cost.js";
 import { buildInsights } from "../analyze/insights.js";
 import type { RunAnalysis } from "../analyze/model.js";
-import { summarizeJobs, summarizeRuns } from "../analyze/stats.js";
+import { type JobStat, summarizeJobs, summarizeRuns } from "../analyze/stats.js";
 import { getRepo, getRun, getWorkflowSource, listRunJobs, listWorkflowRuns, parseRepoSlug } from "../github/api.js";
 import { GitHubClient } from "../github/client.js";
 import { resolveToken, TOKEN_HINT } from "../github/token.js";
@@ -30,6 +39,7 @@ export const ANALYZE_FLAGS = {
   all: "boolean",
   check: "boolean",
   budget: "string",
+  "job-budget": "string",
   color: "boolean",
   token: "string",
 } as const;
@@ -43,7 +53,7 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
   if (asJson || asMarkdown) setColorEnabled(false);
 
   // Parsed before the first request: a mistyped budget should cost nothing.
-  const budgetMs = resolveBudget(args);
+  const budgets = resolveBudgets(args);
 
   const slug = args.positionals[0] ?? detectRepoFromGit();
   if (!slug) {
@@ -85,8 +95,10 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
 
   const focus = analyses[0] as RunAnalysis;
   const stats = summarizeRuns(analyses);
+  const jobStats = summarizeJobs(analyses);
   const cost = estimateCost(analyses);
-  const budget = budgetMs === null ? null : evaluateBudget(budgetMs, stats.wallP50);
+  const budget = budgets.wallMs === null ? null : evaluateBudget(budgets.wallMs, stats.wallP50);
+  const jobBudgets = evaluateJobBudgets(budgets.jobs, jobStats);
 
   const report: Report = {
     owner,
@@ -106,38 +118,53 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
       .map((run) => run.name ?? run.path.replace(/^\.github\/workflows\//, "")),
     showAllJobs: getBool(args, "all"),
     budget,
+    jobBudgets,
   };
 
   if (asJson) {
-    process.stdout.write(`${JSON.stringify(toJson(report, analyses), null, 2)}\n`);
-    return exitCodeFor(args, budget);
+    process.stdout.write(`${JSON.stringify(toJson(report, analyses, jobStats), null, 2)}\n`);
+    return exitCodeFor(args, budget, jobBudgets);
   }
   if (asMarkdown) {
     process.stdout.write(renderMarkdown(report));
-    return exitCodeFor(args, budget);
+    return exitCodeFor(args, budget, jobBudgets);
   }
 
   process.stdout.write(renderReport(report));
-  return exitCodeFor(args, budget);
+  return exitCodeFor(args, budget, jobBudgets);
+}
+
+interface Budgets {
+  /** Whole-pipeline wall time; null when --budget was not given. */
+  wallMs: number | null;
+  jobs: JobBudget[];
 }
 
 /**
- * `--budget` alone reports the verdict; `--check` is what turns it into a gate,
- * matching lockreview, where `--check` opts in and the threshold flag tunes it.
+ * `--budget` and `--job-budget` alone report their verdicts; `--check` is what
+ * turns them into a gate, matching lockreview, where `--check` opts in and the
+ * threshold flags tune it. Either kind of budget is enough to check against.
  */
-function resolveBudget(args: ParsedArgs): number | null {
-  const raw = getString(args, "budget");
-  if (raw === undefined) {
-    if (getBool(args, "check")) {
-      throw new UsageError("--check needs a budget to check against. Try --check --budget 10m.");
-    }
-    return null;
+function resolveBudgets(args: ParsedArgs): Budgets {
+  const wall = getString(args, "budget");
+  const perJob = getString(args, "job-budget");
+
+  if (wall === undefined && perJob === undefined && getBool(args, "check")) {
+    throw new UsageError("--check needs a budget to check against. Try --check --budget 10m.");
   }
-  return parseDuration(raw);
+
+  return {
+    wallMs: wall === undefined ? null : parseDuration(wall),
+    jobs: perJob === undefined ? [] : parseJobBudgets(perJob),
+  };
 }
 
-function exitCodeFor(args: ParsedArgs, budget: BudgetVerdict | null): number {
-  return getBool(args, "check") && budget?.over ? EXIT.overBudget : EXIT.ok;
+function exitCodeFor(
+  args: ParsedArgs,
+  budget: BudgetVerdict | null,
+  jobBudgets: JobBudgetVerdict[],
+): number {
+  return getBool(args, "check") && anyOverBudget(budget, jobBudgets) ? EXIT.overBudget : EXIT.ok;
 }
 
 /**
@@ -249,16 +276,17 @@ function monthlyProjection(analyses: RunAnalysis[], cost: ReturnType<typeof esti
   return projectMonthly(cost, analyses.length, runsPerMonth);
 }
 
-function toJson(report: Report, analyses: RunAnalysis[]) {
+function toJson(report: Report, analyses: RunAnalysis[], jobStats: JobStat[]) {
   return {
     repo: `${report.owner}/${report.repo}`,
     budget: report.budget,
+    jobBudgets: report.jobBudgets,
     workflow: report.workflowName,
     branch: report.branch,
     runsAnalyzed: analyses.length,
     stats: report.stats,
     cost: { ...report.cost, billable: report.billable, monthlyUsd: report.monthlyUsd },
-    jobs: summarizeJobs(analyses),
+    jobs: jobStats,
     insights: report.insights,
     focusRun: {
       id: report.focus.run.id,

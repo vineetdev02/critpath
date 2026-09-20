@@ -35,8 +35,14 @@ inputs:
     description: Wall-time budget, e.g. 10m, 90s, 1h30m. A bare number reads as minutes.
     required: false
     default: ""
+  job-budget:
+    description: >
+      Per-job budgets as <job>=<duration>, one per line or separated by commas,
+      e.g. "build=5m". Each is checked against that job's p50 across the sample.
+    required: false
+    default: ""
   check:
-    description: Fail the job when p50 wall time is over the budget. No effect without a budget.
+    description: Fail the job when a budget is exceeded. No effect without a budget.
     required: false
     default: "true"
   comment:
@@ -61,7 +67,7 @@ outputs:
     description: Path to the markdown report this run wrote.
     value: ${{ steps.critpath.outputs.report }}
   over-budget:
-    description: '"true" when p50 wall time came out over the budget.'
+    description: '"true" when a budget — wall-time or per-job — came out over.'
     value: ${{ steps.critpath.outputs.over-budget }}
   exit-code:
     description: The exit code critpath returned — 0 clean, 1 over budget, 3 could not run.
@@ -84,6 +90,7 @@ runs:
         CRITPATH_RUNS: ${{ inputs.runs }}
         CRITPATH_EVENT: ${{ inputs.event }}
         CRITPATH_BUDGET: ${{ inputs.budget }}
+        CRITPATH_JOB_BUDGET: ${{ inputs.job-budget }}
         CRITPATH_ARGS: ${{ inputs.args }}
       run: |
         set -u
@@ -107,11 +114,18 @@ runs:
         [ -n "$CRITPATH_WORKFLOW" ] && args+=(--workflow "$CRITPATH_WORKFLOW")
         [ -n "$CRITPATH_RUNS" ] && args+=(--runs "$CRITPATH_RUNS")
         [ -n "$CRITPATH_EVENT" ] && args+=(--event "$CRITPATH_EVENT")
-        # --check goes in whenever there is a budget, because the exit code is
-        # the only place the verdict is machine-readable — the `check` input
-        # decides whether that verdict fails the job, further down. Without a
-        # budget --check is a usage error, so it stays out.
-        [ -n "$CRITPATH_BUDGET" ] && args+=(--budget "$CRITPATH_BUDGET" --check)
+        [ -n "$CRITPATH_BUDGET" ] && args+=(--budget "$CRITPATH_BUDGET")
+        # One --job-budget, never several: the CLI rejects a repeated one
+        # rather than keeping the last, and a multi-line input arrives here as
+        # one string that it already knows how to split.
+        [ -n "$CRITPATH_JOB_BUDGET" ] && args+=(--job-budget "$CRITPATH_JOB_BUDGET")
+        # --check goes in whenever there is a budget of either kind, because
+        # the exit code is the only place the verdict is machine-readable — the
+        # `check` input decides whether that verdict fails the job, further
+        # down. With no budget at all --check is a usage error, so it stays out.
+        if [ -n "$CRITPATH_BUDGET" ] || [ -n "$CRITPATH_JOB_BUDGET" ]; then
+          args+=(--check)
+        fi
         # Word-split on purpose: `args: --all --event push` is a flag list.
         # shellcheck disable=SC2206
         [ -n "$CRITPATH_ARGS" ] && args+=($CRITPATH_ARGS)
@@ -207,5 +221,5 @@ runs:
     - if: ${{ steps.critpath.outputs.over-budget == 'true' && inputs.check == 'true' }}
       shell: bash
       run: |
-        echo "::error::critpath: p50 wall time is over the budget."
+        echo "::error::critpath: a budget was exceeded — see the report."
         exit 1

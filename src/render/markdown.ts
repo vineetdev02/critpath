@@ -1,4 +1,4 @@
-import type { BudgetVerdict } from "../analyze/budget.js";
+import type { BudgetVerdict, JobBudgetVerdict } from "../analyze/budget.js";
 import type { Insight } from "../analyze/insights.js";
 import type { RunAnalysis, StepAnalysis } from "../analyze/model.js";
 import { summarizeJobs } from "../analyze/stats.js";
@@ -30,6 +30,7 @@ export function renderMarkdown(report: Report): string {
   const blocks: string[] = [COMMENT_MARKER, `### critpath — \`${report.owner}/${report.repo}\``];
 
   if (report.budget) blocks.push(budgetVerdict(report.budget));
+  if (report.jobBudgets.length > 0) blocks.push(jobBudgetTable(report));
   blocks.push(headline(report));
   blocks.push(criticalPath(report.focus));
 
@@ -55,6 +56,39 @@ function budgetVerdict(verdict: BudgetVerdict): string {
     return `🔴 **Over budget** — p50 wall time \`${duration(actualMs)}\` is ${duration(actualMs - budgetMs)} over the ${duration(budgetMs)} budget.`;
   }
   return `✅ **Within budget** — p50 wall time \`${duration(actualMs)}\`, ${duration(budgetMs - actualMs)} to spare.`;
+}
+
+/**
+ * The per-job gate, in the same block as the wall-time one: both are results
+ * a reader is scrolling for, and splitting them would bury the second.
+ *
+ * A budget that matched no job keeps its row rather than disappearing. It
+ * does not fail the build — a renamed job would then turn every build red
+ * with no code change behind it — so the row is the only thing standing
+ * between a typo and a gate that reads green forever.
+ */
+function jobBudgetTable(report: Report): string {
+  const runs = `${report.stats.count} run${report.stats.count === 1 ? "" : "s"}`;
+
+  const rows = report.jobBudgets.map((verdict) => {
+    const name = `\`${escapeText(verdict.job ?? verdict.pattern)}\``;
+
+    if (verdict.actualMs === null) {
+      return `| ⚪ | ${name} | — | ${duration(verdict.budgetMs)} | no job by that name in the last ${runs} |`;
+    }
+
+    const over = verdict.actualMs - verdict.budgetMs;
+    const note = verdict.over ? `**${duration(over)} over**` : `${duration(-over)} to spare`;
+    return `| ${verdict.over ? "🔴" : "✅"} | ${name} | ${duration(verdict.actualMs)} | ${duration(verdict.budgetMs)} | ${note} |`;
+  });
+
+  return [
+    "#### Job budgets",
+    "",
+    "| | Job | p50 | Budget | |",
+    "| :-: | --- | --: | --: | --- |",
+    ...rows,
+  ].join("\n");
 }
 
 function headline(report: Report): string {

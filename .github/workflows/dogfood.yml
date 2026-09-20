@@ -61,4 +61,11 @@ jobs:
           # runner would teach us to ignore this job, and a gate nobody
           # believes is worse than no gate.
           budget: 15m
+          # Per-job budgets on the real thing, and the matrix rule with them:
+          # `Test` covers `Test (ubuntu-latest, 20)` and its three siblings,
+          # five minutes each rather than five between them, because they run
+          # at the same time. Generous for the same reason the wall budget is.
+          job-budget: |
+            Typecheck and build=5m
+            Test=5m
           check: "true"

@@ -9,9 +9,16 @@ import { COMMENT_MARKER } from "../src/render/markdown.js";
 const read = (name: string): string =>
   readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), "utf8");
 
+interface Action {
+  inputs: Record<string, unknown>;
+  runs: { steps: Array<{ id?: string; env?: Record<string, string>; run?: string }> };
+}
+
 const action = read("action.yml");
-const steps = (parse(action) as { runs: { steps: { run?: string }[] } }).runs.steps;
+const doc = parse(action) as Action;
+const steps = doc.runs.steps;
 const scripts = steps.map((step) => step.run ?? "").join("\n");
+const mainStep = steps.find((step) => step.id === "critpath");
 
 describe("the packaged action", () => {
   it("runs the version its own checkout declares, never a hardcoded one", () => {
@@ -45,5 +52,36 @@ describe("the packaged action", () => {
 
   it("asks critpath for markdown, which is what it publishes", () => {
     expect(scripts).toContain("--markdown");
+  });
+
+  it("passes both kinds of budget, and asks for the gate when either is set", () => {
+    // --check is what makes the verdict machine-readable, and a per-job budget
+    // with no --check would be analysed and then thrown away.
+    expect(scripts).toContain('args+=(--budget "$CRITPATH_BUDGET")');
+    expect(scripts).toContain('args+=(--job-budget "$CRITPATH_JOB_BUDGET")');
+    expect(scripts).toMatch(/if \[ -n "\$CRITPATH_BUDGET" \] \|\| \[ -n "\$CRITPATH_JOB_BUDGET" \]/);
+  });
+
+  it("passes --job-budget once, which is all the CLI accepts", () => {
+    // Lines, not occurrences: the comment above the fix names the flag too.
+    const lines = (mainStep?.run ?? "")
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#") && line.includes("--job-budget"));
+
+    expect(lines).toHaveLength(1);
+  });
+
+  it("backs every variable the step reads with an input it declares", () => {
+    // An input that was never declared reads as empty, so the flag it guards
+    // silently never appears and the gate it was meant to set is simply gone.
+    const used = [...new Set([...(mainStep?.run ?? "").matchAll(/\$\{?CRITPATH_([A-Z_]+)\}?/g)].map(
+      (match) => match[1] as string,
+    ))];
+
+    expect(used.length).toBeGreaterThan(0);
+    for (const variable of used) {
+      expect(Object.keys(mainStep?.env ?? {})).toContain(`CRITPATH_${variable}`);
+      expect(Object.keys(doc.inputs)).toContain(variable.toLowerCase().replace(/_/g, "-"));
+    }
   });
 });

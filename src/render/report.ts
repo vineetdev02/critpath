@@ -1,4 +1,4 @@
-import type { BudgetVerdict } from "../analyze/budget.js";
+import type { BudgetVerdict, JobBudgetVerdict } from "../analyze/budget.js";
 import type { CostEstimate } from "../analyze/cost.js";
 import type { Insight } from "../analyze/insights.js";
 import type { RunAnalysis, StepAnalysis } from "../analyze/model.js";
@@ -26,6 +26,8 @@ export interface Report {
   showAllJobs: boolean;
   /** Set only when --budget was given; null leaves the report unchanged. */
   budget: BudgetVerdict | null;
+  /** One entry per job a --job-budget matched, plus the ones that matched nothing. */
+  jobBudgets: JobBudgetVerdict[];
 }
 
 export function renderReport(report: Report): string {
@@ -42,7 +44,8 @@ export function renderReport(report: Report): string {
   }
   out.push("");
   out.push(...summary(report), "");
-  if (report.budget) out.push(budgetVerdict(report.budget), "");
+  const gate = budgetBlock(report);
+  if (gate.length > 0) out.push(...gate, "");
   out.push(...criticalPath(report.focus), "");
   out.push(...waterfall(report, width), "");
   out.push(...slowestSteps(report.focus), "");
@@ -112,9 +115,19 @@ function summary(report: Report): string[] {
 }
 
 /**
- * The gate result, on its own line rather than folded into the summary rows —
- * it is the one thing a CI reader scrolls up to find.
+ * Every gate result together, above the analysis rather than folded into the
+ * summary rows — it is the thing a CI reader scrolls up to find.
  */
+function budgetBlock(report: Report): string[] {
+  const out: string[] = [];
+  if (report.budget) out.push(budgetVerdict(report.budget));
+  if (report.jobBudgets.length > 0) {
+    if (out.length > 0) out.push("");
+    out.push(...jobBudgetRows(report.jobBudgets, report.stats.count));
+  }
+  return out;
+}
+
 function budgetVerdict(verdict: BudgetVerdict): string {
   const { actualMs, budgetMs } = verdict;
   if (verdict.over) {
@@ -123,6 +136,42 @@ function budgetVerdict(verdict: BudgetVerdict): string {
   }
   const label = c.green(c.bold("within budget"));
   return `  ${label}  p50 wall time ${duration(actualMs)}, ${duration(budgetMs - actualMs)} to spare`;
+}
+
+/**
+ * Per-job verdicts, measured on p50 across the sample like the wall-time one,
+ * so one unlucky run cannot fail a job's gate either.
+ *
+ * A budget that matched no job keeps its row and says so. It does not fail
+ * the build — a job renamed, or one that only runs on main, would turn every
+ * build red with no code change behind it — but a gate measuring nothing has
+ * to be visible, or it reads as a pass forever.
+ */
+function jobBudgetRows(verdicts: JobBudgetVerdict[], sampleCount: number): string[] {
+  const nameOf = (verdict: JobBudgetVerdict): string => verdict.job ?? verdict.pattern;
+  const nameWidth = Math.max(...verdicts.map((verdict) => Math.min(nameOf(verdict).length, 34)), 8);
+  const runs = `${sampleCount} run${sampleCount === 1 ? "" : "s"}`;
+  const out = [c.bold("Job budgets") + c.dim("  p50 per job across the sample")];
+
+  for (const verdict of verdicts) {
+    const name = padEnd(truncate(nameOf(verdict), nameWidth), nameWidth);
+
+    if (verdict.actualMs === null) {
+      out.push(`  ${c.gray("?")}  ${name} ${c.dim(`no job by that name in the last ${runs}`)}`);
+      continue;
+    }
+
+    const over = verdict.actualMs - verdict.budgetMs;
+    const note = verdict.over
+      ? c.red(`${duration(over)} over ${duration(verdict.budgetMs)}`)
+      : c.dim(`${duration(-over)} under ${duration(verdict.budgetMs)}`);
+    out.push(
+      `  ${verdict.over ? c.red("✗") : c.green("✓")}  ${name} ` +
+        `${padStart(duration(verdict.actualMs), 9)}   ${note}`,
+    );
+  }
+
+  return out;
 }
 
 function trendSuffix(stats: RunStats): string {

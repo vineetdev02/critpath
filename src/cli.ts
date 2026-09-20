@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
 
+import { rejectRepeatedJobBudget } from "./analyze/budget.js";
 import { parseArgs, UsageError } from "./args.js";
 import { ANALYZE_FLAGS, analyzeCommand, EXIT } from "./commands/analyze.js";
 import { GitHubError } from "./github/client.js";
@@ -27,7 +28,8 @@ ${c.bold("Options")}
   --event <name>      Filter by trigger, e.g. push, pull_request
   --all               Show every job in the waterfall, not just the slowest
   --budget <time>     Wall-time budget, e.g. 10m, 90s, 1h30m (bare number = minutes)
-  --check             Exit 1 when p50 wall time is over --budget
+  --job-budget <list> Per-job budgets, e.g. "build=5m,test=8m" — p50 for each job
+  --check             Exit 1 when any budget is over
   --markdown          GitHub-flavoured markdown, for a pull request comment
   --json              Machine-readable output
   --no-color          Disable colour
@@ -41,6 +43,7 @@ ${c.bold("Examples")}
   critpath my-org/api --json > ci.json
   critpath --markdown >> "$GITHUB_STEP_SUMMARY"
   critpath --check --budget 10m             ${c.dim("# gate a pull request")}
+  critpath --check --job-budget "test=8m"   ${c.dim("# gate one job, or several")}
 
 ${c.bold("Exit codes")}
   0 clean   1 over budget (--check)   2 bad usage   3 could not run
@@ -57,6 +60,7 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(HELP);
     return EXIT.ok;
   }
+  rejectRepeatedJobBudget(argv);
 
   return analyzeCommand(args);
 }

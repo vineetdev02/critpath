@@ -1,67 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { analyzeRun } from "../src/analyze/build.js";
 import { evaluateBudget } from "../src/analyze/budget.js";
-import { estimateCost } from "../src/analyze/cost.js";
-import { buildInsights } from "../src/analyze/insights.js";
-import { summarizeRuns } from "../src/analyze/stats.js";
 import { setColorEnabled } from "../src/render/ansi.js";
 import { COMMENT_MARKER, renderMarkdown } from "../src/render/markdown.js";
-import type { Report } from "../src/render/report.js";
-import { makeJob, makeRun } from "./helpers.js";
-
-const WORKFLOW = `
-name: CI
-jobs:
-  build:
-    runs-on: ubuntu-latest
-  test:
-    needs: build
-    runs-on: ubuntu-latest
-`;
-
-function buildReport(overrides: Partial<Report> = {}): Report {
-  const run = makeRun();
-  const jobs = [
-    makeJob({
-      name: "build",
-      queued: 0,
-      started: 30,
-      completed: 240,
-      steps: [{ name: "Install dependencies", started: 40, completed: 200 }],
-    }),
-    makeJob({ name: "test", started: 250, completed: 600 }),
-  ];
-
-  const analysis = analyzeRun(run, jobs, WORKFLOW);
-  const runs = [analysis];
-
-  return {
-    owner: "acme",
-    repo: "api",
-    workflowName: "CI",
-    branch: "main",
-    runs,
-    stats: summarizeRuns(runs),
-    focus: analysis,
-    insights: buildInsights(analysis),
-    cost: estimateCost(runs),
-    monthlyUsd: null,
-    billable: false,
-    otherWorkflows: [],
-    showAllJobs: false,
-    budget: null,
-    ...overrides,
-  };
-}
+import { makeJobBudgets, makeReport } from "./helpers.js";
 
 describe("renderMarkdown", () => {
   it("leads with the comment marker so a workflow can update in place", () => {
-    expect(renderMarkdown(buildReport()).startsWith(COMMENT_MARKER)).toBe(true);
+    expect(renderMarkdown(makeReport()).startsWith(COMMENT_MARKER)).toBe(true);
   });
 
   it("names the repository and the jobs on the critical path", () => {
-    const out = renderMarkdown(buildReport());
+    const out = renderMarkdown(makeReport());
 
     expect(out).toContain("critpath — `acme/api`");
     expect(out).toContain("#### Critical path");
@@ -70,53 +20,93 @@ describe("renderMarkdown", () => {
   });
 
   it("puts the budget verdict above everything else", () => {
-    const over = renderMarkdown(buildReport({ budget: evaluateBudget(60_000, 600_000) }));
+    const over = renderMarkdown(makeReport({ budget: evaluateBudget(60_000, 600_000) }));
     expect(over).toContain("**Over budget**");
     expect(over.indexOf("Over budget")).toBeLessThan(over.indexOf("Critical path"));
 
-    const under = renderMarkdown(buildReport({ budget: evaluateBudget(3_600_000, 600_000) }));
+    const under = renderMarkdown(makeReport({ budget: evaluateBudget(3_600_000, 600_000) }));
     expect(under).toContain("**Within budget**");
     expect(under).not.toContain("Over budget");
   });
 
   it("says nothing about a budget that was not asked for", () => {
-    expect(renderMarkdown(buildReport())).not.toContain("budget");
+    expect(renderMarkdown(makeReport())).not.toContain("budget");
   });
 
   it("never emits ANSI escapes, even with colour switched on", () => {
     setColorEnabled(true);
     try {
-      expect(renderMarkdown(buildReport())).not.toMatch(/\[/);
+      expect(renderMarkdown(makeReport())).not.toMatch(/\[/);
     } finally {
       setColorEnabled(false);
     }
   });
 
   it("escapes pipes and angle brackets so a name cannot break a table", () => {
-    const out = renderMarkdown(buildReport({ workflowName: "a|b", otherWorkflows: ["<script>"] }));
+    const out = renderMarkdown(makeReport({ workflowName: "a|b", otherWorkflows: ["<script>"] }));
 
     expect(out).toContain("a\\|b");
     expect(out).toContain("&lt;script>");
   });
 
   it("reports free minutes for a public repo and money for a private one", () => {
-    expect(renderMarkdown(buildReport())).toContain("free on a public repo");
-    expect(renderMarkdown(buildReport({ billable: true, monthlyUsd: 42 }))).toContain("/month");
+    expect(renderMarkdown(makeReport())).toContain("free on a public repo");
+    expect(renderMarkdown(makeReport({ billable: true, monthlyUsd: 42 }))).toContain("/month");
   });
 
   it("collapses the long tables behind <details>", () => {
-    const out = renderMarkdown(buildReport());
+    const out = renderMarkdown(makeReport());
 
     expect(out).toContain("<summary>Slowest steps</summary>");
     expect(out).toContain("<summary>All 2 jobs</summary>");
   });
 
   it("survives a run whose critical path could not be built", () => {
-    const empty = buildReport();
+    const empty = makeReport();
     const focus = { ...empty.focus, criticalPath: [], jobs: [] };
     const out = renderMarkdown({ ...empty, focus, runs: [focus], insights: [] });
 
     expect(out).toContain("#### Critical path");
     expect(out).not.toContain("| 1 |");
+  });
+});
+
+describe("renderMarkdown · job budgets", () => {
+  // build ran 3m 30s and test 5m 50s, so this is one job over, one job with
+  // room, and one budget naming a job that is not in the sample at all.
+  const report = makeReport();
+  const jobBudgets = makeJobBudgets(report, "build=1m,test=1h,deploy=5m");
+
+  it("gives each job a row, with the overrun spelled out", () => {
+    const out = renderMarkdown(makeReport({ jobBudgets }));
+
+    expect(out).toContain("#### Job budgets");
+    expect(out).toContain("| 🔴 | `build` | 3m 30s | 1m 00s | **2m 30s over** |");
+    expect(out).toContain("| ✅ | `test` | 5m 50s | 1h 00m | 54m 10s to spare |");
+  });
+
+  it("keeps a budget that matched no job, rather than dropping it silently", () => {
+    const out = renderMarkdown(makeReport({ jobBudgets }));
+
+    expect(out).toContain("| ⚪ | `deploy` | — | 5m 00s | no job by that name in the last 1 run |");
+  });
+
+  it("puts the job budgets above the analysis, with the wall-time verdict", () => {
+    const out = renderMarkdown(makeReport({ jobBudgets, budget: evaluateBudget(60_000, 600_000) }));
+
+    expect(out.indexOf("Over budget")).toBeLessThan(out.indexOf("Job budgets"));
+    expect(out.indexOf("Job budgets")).toBeLessThan(out.indexOf("Critical path"));
+  });
+
+  it("says nothing when no job budget was asked for", () => {
+    expect(renderMarkdown(makeReport())).not.toContain("Job budgets");
+  });
+
+  it("escapes a job name so it cannot break the table", () => {
+    const out = renderMarkdown(
+      makeReport({ jobBudgets: [{ pattern: "a|b", budgetMs: 60_000, job: "a|b", actualMs: 30_000, runs: 1, over: false }] }),
+    );
+
+    expect(out).toContain("`a\\|b`");
   });
 });

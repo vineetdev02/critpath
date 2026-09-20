@@ -125,7 +125,8 @@ critpath [owner/repo] [options]
   --event <name>      Filter by trigger, e.g. push, pull_request
   --all               Show every job in the waterfall, not just the slowest
   --budget <time>     Wall-time budget, e.g. 10m, 90s, 1h30m
-  --check             Exit 1 when p50 wall time is over --budget
+  --job-budget <list> Per-job budgets, e.g. "build=5m,test=8m"
+  --check             Exit 1 when any budget is over
   --markdown          GitHub-flavoured markdown, for a pull request comment
   --json              Machine-readable output
   --no-color          Disable colour
@@ -158,6 +159,36 @@ Reading a waterfall is a thing you do once. A budget is a thing that runs foreve
   OVER BUDGET  p50 wall time 12m 14s is 2m 14s over 10m 00s
 ```
 
+### Per-job budgets
+
+A whole-pipeline budget says CI got slower. It does not say which job did, and it will not
+notice a job that doubled while something else got faster. `--job-budget` gates jobs one at a
+time, on the same p50-across-the-sample measurement:
+
+```bash
+critpath --check --job-budget "build=5m,test=8m"
+```
+
+```
+Job budgets  p50 per job across the sample
+  ✗  test        8m 20s   3m 20s over 5m 00s
+  ✓  build       3m 10s   1m 50s under 5m 00s
+  ?  deploy   no job by that name in the last 20 runs
+```
+
+Entries are separated by commas or newlines, and a comma inside parentheses is left alone, so a
+matrix job can be named in full: `--job-budget "test (ubuntu-latest, 20)=8m"`. Naming the job
+without its matrix suffix budgets **each** shard — `test=8m` gives `test (20)` and `test (22)`
+eight minutes each, which is what the wall clock sees, since they run at the same time.
+
+Give the option once. A second `--job-budget` is a usage error rather than a silently dropped
+budget, so put every entry in the one list.
+
+A budget that matches no job gets the last line above: it is reported, and it does **not** fail
+the build. A job that was renamed, or one that only runs on `main`, would otherwise turn every
+build red with no code change behind it — but a gate measuring nothing cannot be silent either,
+or a typo reads as a pass forever.
+
 | code | meaning |
 | --- | --- |
 | `0` | clean |
@@ -189,11 +220,14 @@ jobs:
       - uses: vineetdev02/critpath@v0.1.7
         with:
           budget: 10m
+          job-budget: |
+            build=5m
+            test=8m
 ```
 
 That samples the busiest workflow on the default branch, writes the report to the job summary,
-posts it on the pull request when there is one, and fails the job if p50 wall time is over the
-budget.
+posts it on the pull request when there is one, and fails the job if p50 wall time — or any one
+job — is over budget.
 
 | input | default | |
 | --- | --- | --- |
@@ -204,7 +238,8 @@ budget.
 | `runs` | `20` | How many runs to sample, max 100 |
 | `event` | — | Only runs from this trigger, e.g. `pull_request` |
 | `budget` | — | Wall-time budget, e.g. `10m` |
-| `check` | `true` | Fail the job when p50 is over the budget |
+| `job-budget` | — | Per-job budgets, one `job=duration` per line |
+| `check` | `true` | Fail the job when a budget is exceeded |
 | `comment` | `true` | Post the report on the pull request |
 | `summary` | `true` | Append the report to the job summary |
 | `args` | — | Extra flags, passed through verbatim |
@@ -256,7 +291,6 @@ Hosted products (Depot, Trunk, BuildPulse) do this and much more, behind a signu
 ## Roadmap
 
 - Comparing a pull request against its base branch ("this PR added 3m to CI")
-- Per-job budgets, not just a whole-pipeline one
 - Cache hit-rate analysis from run logs
 - Trend history across weeks, not just the sampled window
 - Suggested `needs:` graph rewrites with predicted wall-time savings
@@ -267,7 +301,7 @@ Issues and PRs welcome — especially real workflows where the critical path com
 
 ```bash
 npm install
-npm test          # 50 tests, no network
+npm test          # 85 tests, no network
 npm run build
 node dist/cli.js owner/repo
 ```
