@@ -4,7 +4,7 @@ import type { Insight } from "../analyze/insights.js";
 import type { RunAnalysis, StepAnalysis } from "../analyze/model.js";
 import type { RunStats } from "../analyze/stats.js";
 import { c, padEnd, padStart, terminalWidth, truncate } from "./ansi.js";
-import { delta, duration, percent, relativeTime, usd } from "./format.js";
+import { delta, duration, percent, printable, relativeTime, usd } from "./format.js";
 import { BAR_LEGEND, renderWaterfall } from "./waterfall.js";
 
 export interface Report {
@@ -38,7 +38,7 @@ export function renderReport(report: Report): string {
   if (report.otherWorkflows.length > 0) {
     out.push(
       c.dim(
-        `  also in this repo: ${report.otherWorkflows.slice(0, 3).join(", ")} — use --workflow to switch`,
+        `  also in this repo: ${report.otherWorkflows.slice(0, 3).map(printable).join(", ")} — use --workflow to switch`,
       ),
     );
   }
@@ -56,9 +56,11 @@ export function renderReport(report: Report): string {
 }
 
 function header(report: Report): string {
-  const title = c.bold(`critpath  ${report.owner}/${report.repo}`);
+  // Every name in this report is whatever a workflow file says, so each one
+  // goes through printable() on its way to the terminal.
+  const title = c.bold(`critpath  ${printable(`${report.owner}/${report.repo}`)}`);
   const context = c.dim(
-    `${report.workflowName}  ·  ${report.branch}  ·  last ${report.stats.count} run${report.stats.count === 1 ? "" : "s"}`,
+    `${printable(report.workflowName)}  ·  ${printable(report.branch)}  ·  last ${report.stats.count} run${report.stats.count === 1 ? "" : "s"}`,
   );
   return `${title}   ${context}`;
 }
@@ -148,7 +150,7 @@ function budgetVerdict(verdict: BudgetVerdict): string {
  * to be visible, or it reads as a pass forever.
  */
 function jobBudgetRows(verdicts: JobBudgetVerdict[], sampleCount: number): string[] {
-  const nameOf = (verdict: JobBudgetVerdict): string => verdict.job ?? verdict.pattern;
+  const nameOf = (verdict: JobBudgetVerdict): string => printable(verdict.job ?? verdict.pattern);
   const nameWidth = Math.max(...verdicts.map((verdict) => Math.min(nameOf(verdict).length, 34)), 8);
   const runs = `${sampleCount} run${sampleCount === 1 ? "" : "s"}`;
   const out = [c.bold("Job budgets") + c.dim("  p50 per job across the sample")];
@@ -196,11 +198,11 @@ function criticalPath(run: RunAnalysis): string[] {
     out.push(c.dim("  (dependencies inferred from timings — workflow file not readable at that commit)"));
   }
 
-  const nameWidth = Math.max(...run.criticalPath.map((entry) => Math.min(entry.job.name.length, 34)), 8);
+  const nameWidth = Math.max(...run.criticalPath.map((entry) => Math.min(printable(entry.job.name).length, 34)), 8);
 
   run.criticalPath.forEach((entry, index) => {
     const step = c.dim(String(index + 1).padStart(2));
-    const name = padEnd(truncate(entry.job.name, nameWidth), nameWidth);
+    const name = padEnd(truncate(printable(entry.job.name), nameWidth), nameWidth);
     const dur = padStart(duration(entry.job.durationMs), 9);
     const gap = entry.gapMs >= 5_000 ? c.gray(`  ░ ${duration(entry.gapMs)} waiting`) : "";
     out.push(`  ${step}  ${c.yellow(name)} ${dur}${gap}`);
@@ -237,12 +239,12 @@ function slowestSteps(run: RunAnalysis): string[] {
 
   if (steps.length === 0) return [];
 
-  const nameWidth = Math.max(...steps.map((step) => Math.min(step.name.length, 34)), 10);
+  const nameWidth = Math.max(...steps.map((step) => Math.min(printable(step.name).length, 34)), 10);
   const out = [c.bold("Slowest steps") + c.dim("  across all jobs in this run")];
 
   for (const step of steps) {
-    const name = padEnd(truncate(step.name, nameWidth), nameWidth);
-    const job = c.dim(truncate(step.jobName, 24));
+    const name = padEnd(truncate(printable(step.name), nameWidth), nameWidth);
+    const job = c.dim(truncate(printable(step.jobName), 24));
     out.push(`  ${name} ${padStart(duration(step.durationMs), 9)}   ${job}`);
   }
 
@@ -258,8 +260,8 @@ function whatToFix(insights: Insight[]): string[] {
   const dot = { high: c.red("●"), medium: c.yellow("●"), info: c.gray("●") };
 
   for (const insight of insights) {
-    out.push(`  ${dot[insight.severity]} ${c.bold(insight.title)}`);
-    out.push(`    ${c.dim(insight.detail)}`);
+    out.push(`  ${dot[insight.severity]} ${c.bold(printable(insight.title))}`);
+    out.push(`    ${c.dim(printable(insight.detail))}`);
     if (insight.savingMs && insight.savingMs > 10_000) {
       const unit = insight.savingKind === "wall" ? "off wall time" : "of compute";
       out.push(`    ${c.green(`~${duration(insight.savingMs)} ${unit}`)}`);

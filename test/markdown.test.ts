@@ -42,11 +42,14 @@ describe("renderMarkdown", () => {
     }
   });
 
-  it("escapes pipes and angle brackets so a name cannot break a table", () => {
+  it("keeps a name in a code span literal, rather than escaping what cannot be markup there", () => {
+    // Outside a table nothing in a code span is markup, so an escape there
+    // would print: `a\|b` and `&lt;script>` were what readers used to see.
     const out = renderMarkdown(makeReport({ workflowName: "a|b", otherWorkflows: ["<script>"] }));
 
-    expect(out).toContain("a\\|b");
-    expect(out).toContain("&lt;script>");
+    expect(out).toContain("`a|b`");
+    expect(out).toContain("`<script>`");
+    expect(out).not.toMatch(/(^|[^`])<script>/);
   });
 
   it("reports free minutes for a public repo and money for a private one", () => {

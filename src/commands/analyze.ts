@@ -54,6 +54,7 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
 
   // Parsed before the first request: a mistyped budget should cost nothing.
   const budgets = resolveBudgets(args);
+  const runId = resolveRunId(args);
 
   const slug = args.positionals[0] ?? detectRepoFromGit();
   if (!slug) {
@@ -78,7 +79,7 @@ export async function analyzeCommand(args: ParsedArgs): Promise<number> {
     : (getString(args, "branch") ?? repoInfo.default_branch);
 
   progress("Fetching workflow runs…");
-  const candidates = await collectRunGroups(client, owner, repo, args, branch, limit);
+  const candidates = await collectRunGroups(client, owner, repo, args, branch, limit, runId);
   if (candidates.length === 0) {
     clearProgress();
     process.stderr.write(noRunsMessage(owner, repo, branch, getString(args, "workflow")));
@@ -182,10 +183,10 @@ async function collectRunGroups(
   args: ParsedArgs,
   branch: string | undefined,
   limit: number,
+  runId: number | undefined,
 ): Promise<WorkflowRun[][]> {
-  const explicitRun = getNumber(args, "run");
-  if (explicitRun !== undefined) {
-    return [[await getRun(client, owner, repo, explicitRun)]];
+  if (runId !== undefined) {
+    return [[await getRun(client, owner, repo, runId)]];
   }
 
   const workflow = getString(args, "workflow");
@@ -313,6 +314,20 @@ function toJson(report: Report, analyses: RunAnalysis[], jobStats: JobStat[]) {
       })),
     },
   };
+}
+
+/**
+ * A run id is a positive whole number. `--run 1.5` or `--run -3` is a typo, and
+ * sending it would come back as "Not found … check the repo name" — exit 3 and
+ * advice about the wrong thing.
+ */
+function resolveRunId(args: ParsedArgs): number | undefined {
+  const value = getNumber(args, "run");
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new UsageError(`--run expects a run id, a positive whole number, got "${getString(args, "run")}".`);
+  }
+  return value;
 }
 
 function clampRunCount(value: number): number {

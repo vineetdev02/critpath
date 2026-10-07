@@ -37,3 +37,28 @@ export function relativeTime(timestamp: number, now = Date.now()): string {
   if (hours < 36) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
 }
+
+/**
+ * Characters a terminal acts on rather than prints, and characters that print
+ * as nothing at all: C0 and C1 controls (ESC opens every escape sequence),
+ * DEL, soft hyphens and zero-width characters, line and paragraph separators,
+ * and the bidirectional controls that reorder what is shown around them.
+ */
+const INVISIBLE =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+
+/**
+ * Text that came from somewhere else, made safe to print.
+ *
+ * Every job, step and workflow name is whatever a workflow file says — and on
+ * a pull request from a fork, that file is the fork's. Printed raw, an escape
+ * sequence in a step name can clear the screen and draw a report of its own,
+ * and a zero-width character can make one job name read as another. So nothing
+ * is dropped silently: each such character is shown as its `\uXXXX` code, and
+ * line breaks become spaces so a name cannot start a line of its own.
+ */
+export function printable(text: string): string {
+  return text
+    .replace(/\r\n|[\n\r\t]/g, " ")
+    .replace(INVISIBLE, (char) => `\\u${(char.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`);
+}

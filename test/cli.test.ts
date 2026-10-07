@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getBool, getNumber, getString, parseArgs, UsageError } from "../src/args.js";
+import { ANALYZE_FLAGS, analyzeCommand } from "../src/commands/analyze.js";
 import { parseRepoSlug } from "../src/github/api.js";
 import { nextPageUrl } from "../src/github/client.js";
 import { duration, percent, usd } from "../src/render/format.js";
@@ -76,5 +77,31 @@ describe("formatting", () => {
 
   it("rounds percentages", () => {
     expect(percent(0.615)).toBe("62%");
+  });
+});
+
+describe("analyzeCommand · usage errors cost nothing", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a run id that is not one, before any request", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    for (const value of ["1.5", "-3", "0"]) {
+      await expect(analyzeCommand(parseArgs(["acme/api", "--run", value], ANALYZE_FLAGS)), value).rejects.toThrow(
+        UsageError,
+      );
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a repository that is not one, before any request", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(analyzeCommand(parseArgs(["../../user"], ANALYZE_FLAGS))).rejects.toThrow(UsageError);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

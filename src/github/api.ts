@@ -1,3 +1,4 @@
+import { UsageError } from "../args.js";
 import type { GitHubClient } from "./client.js";
 import { GitHubError } from "./client.js";
 import type { ContentFile, Repo, WorkflowJob, WorkflowRun } from "./types.js";
@@ -79,7 +80,21 @@ export async function getWorkflowSource(
   }
 }
 
-/** Split `owner/repo`, or a full GitHub URL, into its parts. */
+/**
+ * The characters GitHub allows in an account or repository name — underscores
+ * included, which enterprise-managed accounts use — and never a name that is
+ * only dots, which a URL would resolve as a path segment.
+ */
+const NAME = /^(?!\.+$)[A-Za-z0-9_.-]+$/;
+
+/**
+ * Split `owner/repo`, or a full GitHub URL, into its parts.
+ *
+ * A malformed repository is the caller's typo, so it is a usage error (exit 2)
+ * rather than a failure to run. And both parts are checked before they go
+ * anywhere near a URL: `../..` or `repo?x=` would otherwise be resolved into a
+ * different request, carrying the token with it.
+ */
 export function parseRepoSlug(input: string): { owner: string; repo: string } {
   const cleaned = input
     .trim()
@@ -87,9 +102,9 @@ export function parseRepoSlug(input: string): { owner: string; repo: string } {
     .replace(/\.git$/i, "")
     .replace(/\/+$/, "");
 
-  const parts = cleaned.split("/").filter(Boolean);
-  if (parts.length < 2 || !parts[0] || !parts[1]) {
-    throw new Error(`Expected a repository as "owner/repo", got "${input}"`);
+  const [owner, repo] = cleaned.split("/").filter(Boolean);
+  if (!owner || !repo || !NAME.test(owner) || !NAME.test(repo)) {
+    throw new UsageError(`Expected a repository as "owner/repo", got "${input}".`);
   }
-  return { owner: parts[0], repo: parts[1] };
+  return { owner, repo };
 }

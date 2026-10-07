@@ -250,8 +250,17 @@ evaluated whenever one is set, so `over-budget` is answered even with `check: fa
 only decides whether the verdict turns the job red, and it turns it red *after* the comment is
 posted, because a red job with no explanation is what gets muted.
 
-The comment updates itself. `critpath`'s markdown carries a `<!-- critpath -->` marker, and the
-action edits the comment carrying it rather than posting a new one on every push.
+The comment updates itself. `critpath`'s markdown opens with a `<!-- critpath -->` marker, and
+the action edits its own comment that opens with it rather than posting a new one on every push —
+never a comment somebody else wrote, whatever it contains.
+
+A pull request from a fork gets a read-only token, so the comment cannot be posted there. The
+action says so in a warning and carries on: the report is still in the job summary and the step's
+`report` output, and only the budget decides whether the job goes red.
+
+Job, step and workflow names come from the workflow file, which on a fork's pull request is the
+fork's. In the comment they are escaped, so a name cannot become a link, an image, a mention or
+HTML; in the terminal, control characters are shown as `\uXXXX` instead of being obeyed.
 
 Without the action it is `npx`, the same as anywhere else:
 

@@ -25,9 +25,26 @@ describe("the packaged action", () => {
     // The tag that ships the action ships the package too, so reading the
     // version back out of package.json is what keeps `@v0.1.4` from quietly
     // running whatever was pinned here at the time.
-    expect(scripts).toContain("$GITHUB_ACTION_PATH/package.json");
+    expect(scripts).toContain("process.env.GITHUB_ACTION_PATH");
     expect(scripts).toContain('"critpath@$version"');
     expect(scripts).not.toMatch(/critpath@\d/);
+  });
+
+  it("never pastes a path into JavaScript source", () => {
+    // A Windows runner's action path is `D:\a\_actions\…\v0.1.9`, and inside
+    // a JavaScript string literal `\v` is a vertical tab: the require failed
+    // and the step died before critpath ran. The path goes through the
+    // environment instead.
+    const code = scripts.split("\n").filter((line) => !line.trim().startsWith("#")).join("\n");
+    expect(code).not.toMatch(/node -[ep] "[^"]*\$\{?[A-Z_]+/);
+  });
+
+  it("does not fail the job because a comment could not be posted", () => {
+    // A fork's pull request gets a read-only token. The comment step says so
+    // and carries on; it is the budget step that decides the job.
+    const comment = steps.find((step) => step.run?.includes("gh api")) ?? {};
+    expect(comment.run).toContain("::warning::");
+    expect(comment.run).toMatch(/if ! gh api -X POST/);
   });
 
   it("installs into a directory of its own, rather than npx-ing itself", () => {

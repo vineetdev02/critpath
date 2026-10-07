@@ -1,6 +1,6 @@
 import type { JobAnalysis, RunAnalysis } from "../analyze/model.js";
 import { c, padEnd, padStart, truncate } from "./ansi.js";
-import { duration } from "./format.js";
+import { duration, printable } from "./format.js";
 
 const QUEUE_CHAR = "░";
 const RUN_CHAR = "█";
@@ -21,7 +21,7 @@ export function renderWaterfall(run: RunAnalysis, options: WaterfallOptions): st
         .sort((a, b) => a.queuedAt - b.queuedAt);
   const hidden = run.jobs.length - shown.length;
 
-  const longestName = Math.max(...shown.map((job) => job.name.length));
+  const longestName = Math.max(...shown.map((job) => printable(job.name).length));
   const labelWidth = Math.max(8, Math.min(longestName, 30, Math.floor(options.width * 0.3)));
   const metaWidth = 9;
   const barWidth = Math.max(10, options.width - 2 - labelWidth - 1 - 2 - metaWidth);
@@ -36,7 +36,7 @@ export function renderWaterfall(run: RunAnalysis, options: WaterfallOptions): st
   const lines = shown.map((job) => {
     const critical = onCriticalPath.has(job.id);
     const marker = critical ? c.yellow("▸ ") : "  ";
-    const label = padEnd(truncate(job.name, labelWidth), labelWidth);
+    const label = padEnd(truncate(printable(job.name), labelWidth), labelWidth);
     const bar = renderBar(job, scale, barWidth, critical);
     const meta = padStart(duration(job.durationMs), metaWidth);
 

@@ -74,6 +74,11 @@ export class GitHubClient {
   }
 
   private async fetchWithLimit(url: URL): Promise<Response> {
+    // The token goes to the API's own origin and nowhere else. Pagination
+    // follows whatever URL a `Link` header names, and a header that pointed
+    // somewhere else would otherwise be handed the token along with the
+    // request.
+    const sameOrigin = url.origin === new URL(this.baseUrl).origin;
     await this.acquire();
     try {
       return await fetch(url, {
@@ -81,7 +86,7 @@ export class GitHubClient {
           Accept: "application/vnd.github+json",
           "X-GitHub-Api-Version": "2022-11-28",
           "User-Agent": "critpath",
-          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+          ...(this.token && sameOrigin ? { Authorization: `Bearer ${this.token}` } : {}),
         },
       });
     } finally {

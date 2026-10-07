@@ -127,13 +127,24 @@ runs:
           args+=(--check)
         fi
         # Word-split on purpose: `args: --all --event push` is a flag list.
-        # shellcheck disable=SC2206
-        [ -n "$CRITPATH_ARGS" ] && args+=($CRITPATH_ARGS)
+        # Globbing is off while it splits, or a `*` in a job name would be
+        # expanded against whatever files sit in the workspace.
+        if [ -n "$CRITPATH_ARGS" ]; then
+          set -f
+          # shellcheck disable=SC2206
+          args+=($CRITPATH_ARGS)
+          set +f
+        fi
 
         # The version comes from the action's own checkout, so `critpath@v0.1.5`
         # runs 0.1.5 and `@main` runs whatever main declares. A hardcoded pin
         # here would keep running the previous release after every bump.
-        version="$(node -p "require('$GITHUB_ACTION_PATH/package.json').version")"
+        #
+        # The path reaches node through the environment, never pasted into the
+        # script: on a Windows runner it is `D:\a\_actions\…\v0.1.9`, and
+        # inside a JavaScript string `\v` is a vertical tab — the require
+        # failed, and the step died before critpath ever ran.
+        version="$(node -p 'require(require("node:path").join(process.env.GITHUB_ACTION_PATH, "package.json")).version')"
 
         # Installed into a directory of its own, rather than run through
         # `npx critpath@…`. npx resolves a spec against the *current project*
@@ -156,8 +167,12 @@ runs:
         # without it `check: false` could never suppress anything and
         # `over-budget` could never be true, because exit 1 killed the step
         # rather than being read.
+        #
+        # `${args[@]+…}` rather than "${args[@]}": with no inputs set the array
+        # is empty, and bash before 4.4 — macOS's /bin/bash is 3.2 — treats an
+        # empty array as unbound under `set -u`.
         code=0
-        "$install/node_modules/.bin/critpath" "${args[@]}" --markdown > "$report" || code=$?
+        "$install/node_modules/.bin/critpath" ${args[@]+"${args[@]}"} --markdown > "$report" || code=$?
 
         # Every markdown report opens with the comment marker, so a report
         # without one means nothing was written and the verdict below would be
@@ -205,15 +220,33 @@ runs:
         done
 
         comments="repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments"
-        existing="$(gh api "$comments" --paginate \
-          --jq '.[] | select(.body | contains("<!-- critpath -->")) | .id' | awk 'NR == 1')"
+        body="$(mktemp)"
+        jq -Rs '{ body: . }' < "$CRITPATH_REPORT" > "$body"
 
-        if [ -n "$existing" ]; then
-          jq -Rs '{ body: . }' < "$CRITPATH_REPORT" \
-            | gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" --input - > /dev/null
-        else
-          jq -Rs '{ body: . }' < "$CRITPATH_REPORT" \
-            | gh api -X POST "$comments" --input - > /dev/null
+        # Only a comment this token wrote, and only one that opens with the
+        # marker every report opens with. Anyone can post a comment that merely
+        # contains the marker; matching on that edited a stranger's comment, or
+        # failed outright on one the token may not touch. A personal token
+        # answers /user with its login; the workflow token cannot, and writes
+        # as a bot.
+        login="$(gh api user --jq .login 2> /dev/null || true)"
+        existing="$(gh api "$comments" --paginate 2> /dev/null \
+          | jq -r --arg login "$login" '.[]
+              | select((.body // "") | startswith("<!-- critpath -->"))
+              | select(if $login != "" then .user.login == $login else .user.type == "Bot" end)
+              | .id' 2> /dev/null \
+          | tail -n 1 || true)"
+
+        if [ -n "$existing" ] && gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" --input "$body" > /dev/null; then
+          exit 0
+        fi
+
+        # A pull request from a fork gets a read-only token, so the comment is
+        # refused there. That says nothing about CI speed: the report is still
+        # in the step's `report` output and, by default, the job summary, and
+        # failing the job over it turned every outside contribution red.
+        if ! gh api -X POST "$comments" --input "$body" > /dev/null; then
+          echo "::warning::critpath could not comment on pull request #$PR_NUMBER. The token cannot write there, which is normal for a pull request from a fork."
         fi
 
     # Failing last, so the report reaches the pull request even when the budget
