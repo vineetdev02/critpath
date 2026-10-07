@@ -107,7 +107,7 @@ function headline(report: Report): string {
   const facts = [
     `**${duration(stats.wallP50)}** p50 wall time · p90 ${duration(stats.wallP90)}${trend}`,
     `${duration(stats.criticalWorkP50)} of that is the critical path (${percent(stats.wallP50 > 0 ? stats.criticalWorkP50 / stats.wallP50 : 0)}), ${duration(stats.queueP50)} is waiting`,
-    `${focus.parallelism.toFixed(1)}× parallel across ${focus.jobs.length} jobs · ${money}`,
+    `${focus.parallelism.toFixed(1)}× parallel across ${focus.jobs.length} job${focus.jobs.length === 1 ? "" : "s"} · ${money}`,
   ];
 
   const context = `${code(report.workflowName)} · ${code(report.branch)} · last ${stats.count} run${stats.count === 1 ? "" : "s"}`;
@@ -231,8 +231,12 @@ function text(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/[\\`*_[\]~|]/g, "\\$&")
-    .replace(/@(?=[\w-])/g, "@&#8203;")
-    .replace(/#(?=\d)/g, "#&#8203;");
+    // `#` before `@`: the entity the `@` rule inserts contains `#8`, which the
+    // `#` rule would otherwise split into visible garbage. A mention only
+    // starts where a word does, so `checkout@v4`, `pkg@1.0.0` and an email
+    // address are left as they are.
+    .replace(/#(?=\d)/g, "#&#8203;")
+    .replace(/(?<![\w`])@(?=[\w-])/g, "@&#8203;");
 }
 
 /**

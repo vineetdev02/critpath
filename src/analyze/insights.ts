@@ -95,7 +95,7 @@ function queueInsight(run: RunAnalysis): Insight[] {
       title: `${Math.round(share * 100)}% of wall time is waiting, not running`,
       detail:
         `${formatShort(run.criticalGapMs)} on the critical path was spent queueing for a runner ` +
-        `or waiting on \`needs:\`. More concurrency or fewer dependency hops fixes this, not faster code.`,
+        `or waiting on a needs: dependency. More concurrency or fewer dependency hops fixes this, not faster code.`,
       savingMs: run.criticalGapMs,
       savingKind: "wall",
     },
@@ -111,7 +111,7 @@ function serializationInsight(run: RunAnalysis): Insight[] {
       severity: "high",
       title: `${run.jobs.length} jobs, but only ${run.parallelism.toFixed(1)}× parallelism`,
       detail:
-        "The graph is running close to serial. Check whether every `needs:` is a real dependency — " +
+        "The graph is running close to serial. Check whether every needs: is a real dependency — " +
         "each unnecessary edge adds its job's full duration to wall time.",
     },
   ];

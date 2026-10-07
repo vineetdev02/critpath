@@ -77,7 +77,7 @@ function summary(report: Report): string[] {
   rows.push([
     "Compute",
     `p50 ${duration(stats.jobTimeP50)}`,
-    `${focus.parallelism.toFixed(1)}× parallel across ${focus.jobs.length} jobs`,
+    `${focus.parallelism.toFixed(1)}× parallel across ${focus.jobs.length} job${focus.jobs.length === 1 ? "" : "s"}`,
   ]);
   rows.push([
     "Critical path",

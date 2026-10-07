@@ -70,6 +70,20 @@ describe("the markdown report", () => {
     expect(out).not.toContain("![x](");
     expect(out).not.toMatch(/(^|[^\w])@acme\b/);
     expect(out).not.toContain("<img");
+    expect(out).toContain("@&#8203;acme/admins");
+    expect(out).not.toContain("&#&#8203;");
+  });
+
+  it("leaves an @ alone where no mention can start", () => {
+    const out = renderMarkdown(reportNaming("deploy", "Run actions/checkout@v4"));
+    expect(out).toContain("Run actions/checkout@v4");
+  });
+
+  it("says one job, not one jobs", () => {
+    const out = renderMarkdown(reportNaming("deploy", "step"));
+    expect(out).toContain("across 1 job ·");
+    expect(renderReport(reportNaming("deploy", "step"))).toContain("across 1 job");
+    expect(renderReport(reportNaming("deploy", "step"))).not.toContain("1 jobs");
   });
 
   it("keeps a backtick in a workflow name inside its code span", () => {
